@@ -1,23 +1,33 @@
-use std;
+extern crate serde;
+extern crate ron;
 
+use ron::de::from_reader;
+use std::{fs::File};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Divisions {
     major: u32,
     minor: u32
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Precision {
     integer: u32,
     decimal: u32
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub enum TickStyle {
     None,
     Numbered(Divisions),
     Unumbered(Divisions)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Unit(String);
 
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Color {
     Clear,
     Black,
@@ -32,6 +42,7 @@ pub enum Color {
     RGBA(f32, f32, f32, f32),
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub enum GaugeStyle {
     Numeric(Precision),
     Dial(TickStyle),
@@ -40,8 +51,10 @@ pub enum GaugeStyle {
     Triangle(TickStyle)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ChannelName(String);
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Polynomial {
     coeffs: Vec<f32>
 }
@@ -60,6 +73,7 @@ impl Polynomial {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Bounds {
     x1: f32,
     y1: f32,
@@ -67,12 +81,14 @@ pub struct Bounds {
     y2: f32
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GaugeConfig {
     style: GaugeStyle,
     source: ChannelName,
     bounds: Bounds
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ChannelConfig {
     name: String,
     min: f32,
@@ -82,11 +98,13 @@ pub struct ChannelConfig {
     index: u32
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub enum DataSource {
     Mock,
     RaceCapturePro
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     width: u32,
     height: u32,
@@ -98,5 +116,7 @@ pub struct Config {
 
 
 fn main() {
-    println!("Hello, world!");
+    let file = File::open("config.ron").expect("couldn't open config");
+    let config: Config = from_reader(file).unwrap();
+    println!("Config: {:?}", config);
 }

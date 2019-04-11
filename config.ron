@@ -1,0 +1,7 @@
+Config (
+       width: 1024,
+       height: 768,
+       gauges: [],
+       channels: [],
+       datasource: Mock
+)
