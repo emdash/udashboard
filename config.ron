@@ -1,7 +1,21 @@
 Config (
        width: 1024,
-       height: 768,
-       gauges: [],
+       height: 600,
+       gauges: [
+               GaugeConfig(
+                 name: "Tach",
+                 kind: Dial(NoTicks),
+                 source: ChannelName("RPM"),
+                 layout: Grid(GridSize(3, 3), GridPosition(1, 1)),
+               )
+       ],
        channels: [],
-       datasource: Mock
+       datasource: Mock,
+       style: Style(
+              background: Black,
+              foreground: White,
+              indicator: Orange,
+              warning: Yellow,
+              danger: Red
+       )
 )

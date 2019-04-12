@@ -19,7 +19,7 @@ pub struct Precision {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum TickStyle {
-    None,
+    NoTicks,
     Numbered(Divisions),
     Unumbered(Divisions)
 }
@@ -28,12 +28,20 @@ pub enum TickStyle {
 pub struct Unit(String);
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum Interval {
+    Open,
+    LowerBound(f32),
+    UpperBound(f32),
+    Range(f32, f32)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Color {
     Clear,
     Black,
     White,
     Red,
-    Organge,
+    Orange,
     Yellow,
     Green,
     Blue,
@@ -43,7 +51,16 @@ pub enum Color {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum GaugeStyle {
+pub struct Style {
+    background: Color,
+    foreground: Color,
+    indicator: Color,
+    warning: Color,
+    danger: Color
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum GaugeType {
     Numeric(Precision),
     Dial(TickStyle),
     SemiDial(TickStyle),
@@ -74,34 +91,60 @@ impl Polynomial {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Bounds {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32
+pub enum Length {
+    Pixel(f32),
+    Percent(f32)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AbsolutePosition {
+    x: Length,
+    y: Length
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GridSize(u32, u32);
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GridPosition(u32, u32);
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum AbsoluteSize {
+    FromCenter(Length),
+    Square(Length),
+    Rect(Length, Length),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Layout {
+    Absolute(AbsolutePosition, AbsoluteSize),
+    Grid(GridSize, GridPosition),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GaugeConfig {
-    style: GaugeStyle,
+    name: String,
+    kind: GaugeType,
     source: ChannelName,
-    bounds: Bounds
+    layout: Layout,
+    style: Option<Style>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChannelConfig {
+    index: u32,
     name: String,
-    min: f32,
-    max: f32,
+    scale: Interval,
+    warning: Option<Interval>,
+    danger: Option<Interval>,
     units: Option<Unit>,
     convert: Option<Polynomial>,
-    index: u32
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DataSource {
     Mock,
-    RaceCapturePro
+    RaceCapturePro(String)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -110,7 +153,8 @@ pub struct Config {
     height: u32,
     gauges: Vec<GaugeConfig>,
     channels: Vec<ChannelConfig>,
-    datasource: DataSource
+    datasource: DataSource,
+    style: Style
 }
 
 
