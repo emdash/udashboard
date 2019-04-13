@@ -1,5 +1,6 @@
-extern crate serde;
+extern crate cairo;
 extern crate ron;
+extern crate serde;
 
 pub mod v1;
 pub mod config;

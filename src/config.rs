@@ -162,5 +162,5 @@ pub struct Config {
     pub screen: Screen,
     pub channels: Vec<Channel>,
     pub pages: Vec<Vec<Gauge>>,
-    pub logic: Logic
+    pub logic: Logic,
 }

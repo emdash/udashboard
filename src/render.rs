@@ -1,13 +1,18 @@
 // Cairo rendering implementation
+use std::fs::File;
 
+use cairo;
+use cairo::{Context, Format, ImageSurface};
+
+use crate::config;
 use crate::config::{
     Bounds,
+    Config,
     Divisions,
     Gauge,
     GaugeStyle,
     GaugeType,
     Lamp,
-    Pattern,
     Range,
     Color,
     Screen,
@@ -18,10 +23,67 @@ use crate::config::{
 
 use crate::data::State;
 
+fn pattern_from_color(color: Color) -> cairo::Pattern {
+    cairo::Pattern::SolidPattern(cairo::SolidPattern::from_rgba(
+        color.0.into(),
+        color.1.into(),
+        color.2.into(),
+        color.3.into()
+    ))
+}
+
+enum Pattern {
+    Hidden,
+    Solid(cairo::Pattern),
+    SlowBlink(cairo::Pattern),
+    FastBlink(cairo::Pattern)
+}
+
+impl Pattern {
+    pub fn new(config: config::Pattern) -> Pattern {
+        match config {
+            config::Pattern::Hidden => Pattern::Hidden,
+            config::Pattern::Solid(x) =>
+                Pattern::Solid(pattern_from_color(x)),
+            config::Pattern::SlowBlink(x) =>
+                Pattern::SlowBlink(pattern_from_color(x)),
+            config::Pattern::FastBlink(x) =>
+                Pattern::FastBlink(pattern_from_color(x))
+        }
+    }
+
+    pub fn set_source(
+        &self,
+        cr: &Context,
+        null: &cairo::Pattern,
+        time: u64
+    ) {
+        let slow_blink = (time / 1000) % 2 == 1;
+        let fast_blink = (time / 250) % 2 == 1;
+        match self {
+            Pattern::Hidden => cr.set_source(null.into()),
+            Pattern::Solid(x) => cr.set_source(&x),
+            Pattern::SlowBlink(x) => if slow_blink {
+                cr.set_source(&x);
+            } else {
+                cr.set_source(null);
+            },
+            Pattern::FastBlink(x) => if fast_blink {
+                cr.set_source(&x);
+            } else {
+                cr.set_source(null);
+            }
+        }
+    }
+}
+
 pub struct CairoRenderer {
     screen: Screen,
     pages: Vec<Vec<Gauge>>,
-    default_style: Style,
+    background: Pattern,
+    foreground: Pattern,
+    indicator: Pattern,
+    null: cairo::Pattern,
     page: usize
 }
 
@@ -34,11 +96,60 @@ impl CairoRenderer {
         CairoRenderer {
             screen: screen,
             pages: pages,
-            default_style: default_style,
+            background: Pattern::new(default_style.background),
+            foreground: Pattern::new(default_style.foreground),
+            indicator: Pattern::new(default_style.indicator),
+            null: cairo::Pattern::SolidPattern(
+                cairo::SolidPattern::from_rgba(0.0, 0.0, 0.0, 0.0)
+            ),
             page: 0
         }
     }
 
-    pub fn render(&self, _state: State) {
+    pub fn render(
+        &self,
+        cr: &Context,
+        state: &State
+    ) {
+        self.background.set_source(cr, &self.null, state.time);
+    }
+}
+
+
+pub struct PNGRenderer {
+    renderer: CairoRenderer,
+    path: String,
+    screen: Screen
+}
+
+impl PNGRenderer {
+    pub fn new(
+        path: String,
+        screen: Screen,
+        pages: Vec<Vec<Gauge>>,
+        default_style: Style
+    ) -> PNGRenderer {
+        PNGRenderer {
+            renderer: CairoRenderer::new(
+                screen,
+                pages,
+                default_style,
+            ),
+            path: path,
+            screen: screen
+        }
+    }
+
+    pub fn render(&self, state: &State) {
+        let surface = ImageSurface::create(
+            Format::ARgb32,
+            self.screen.width as i32,
+            self.screen.height as i32
+        ).expect("Couldn't create surface.");
+        let cr = Context::new(&surface);
+        self.renderer.render(&cr, state);
+        let mut file = File::create(self.path.clone())
+            .expect("couldn't create file");
+        surface.write_to_png(&mut file);
     }
 }
