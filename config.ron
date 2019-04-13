@@ -30,43 +30,43 @@ V1(
         kind: Dial(Range(0.0, 6500.0), MajorMinor(500.0, 100.0), Filled),
         channel: "RPM",
         layout: Grid(GridSize(2, 1), GridPosition(0, 0)),
-        styles: [(Alarm("OVERRUN"), "DANGER")]
+        styles: {Alarm("OVERRUN"): "DANGER"}
       ), Gauge(
         name: "Coolant",
         kind: Dial(Range(0, 300), None, Outline),
         channel: "ECT",
         layout: Grid(GridSize(2, 4), GridPosition(0, 1)),
-        styles: [
-          (Alarm("ECT_LOW"), "ECT_LOW"),
-          (Alarm("ECT_GOOD"), "OK"),
-          (Alarm("ECT_HIGH"), "DANGER")
-        ],
+        styles: {
+          Alarm("ECT_LOW"): "ECT_LOW",
+          Alarm("ECT_GOOD"): "OK",
+          Alarm("ECT_HIGH"): "DANGER"
+        },
       ), Gauge(
         name: "Oil Pressure",
         kind: Dial(Range(0, 600), None, Outline),
         channel: "ECT",
         layout: Grid(GridSize(2, 4), GridPosition(0, 1)),
-        styles: [(Alarm("OIL_PRESSURE_LOW"), "DANGER")]
+        styles: {Alarm("OIL_PRESSURE_LOW"): "DANGER"}
       )
   ], pages: [
     Page(["Tach", "Coolant", "Oil Pressure"]),
-  ], styles: [
-    Default(Black, White, Orange),
-    Define(StyleDef(
-      name: "ECT_LOW",
+  ], styles: {
+    Default: Style(
+      background: Solid(Black),
+      foreground: Solid(White),
+      indicator: Solid(Orange),
+    ), Define("ECT_LOW"): Style(
       background: Inherit,
       foreground: SlowBlink(Blue),
       indicator: SlowBlink(Blue),
-    )), Define(StyleDef(
-      name: "DANGER",
+    ), Define("DANGER"): Style(
       background: Inherit,
       foreground: FastBlink(Red),
       indicator: FastBlink(Red),
-    )), Define(StyleDef(
-      name: "OK",
+    ), Define("OK"): Style(
       background: Inherit,
       foreground: Inherit,
       indicator: Solid(Green)
-    ))
-  ]
+    )
+  }
 )
