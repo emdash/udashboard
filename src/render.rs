@@ -112,6 +112,28 @@ impl CairoRenderer {
         state: &State
     ) {
         self.background.set_source(cr, &self.null, state.time);
+        cr.paint();
+
+        for gauge in &self.pages[self.page] {
+            self.render_gauge(cr, &gauge, state);
+        }
+    }
+
+    fn render_gauge(
+        &self,
+        cr: &Context,
+        gauge: &Gauge,
+        state: &State
+    ) {
+        match &gauge.kind {
+            GaugeType::Dial(r, d, s) => {println!("{:?}", (r, d, s))}
+            GaugeType::VerticalBar(r, d, s) => {println!("{:?}", (r, d, s))}
+            GaugeType::HorizontalBar(r, d, s) => {println!("{:?}", (r, d, s))}
+            GaugeType::VerticalWedge(r, d, s) => {println!("{:?}", (r, d, s))}
+            GaugeType::HorizontalWedge(r, d, s) => {println!("{:?}", (r, d, s))}
+            GaugeType::IdiotLight(l) => {println!("{:?}", l)},
+            GaugeType::Text(f, s) => {println!("{:?}", s)}
+        }
     }
 }
 
