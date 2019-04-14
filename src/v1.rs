@@ -94,6 +94,8 @@ fn to_config_styleset(styles: StyleSet, defs: &StyleDefs) -> config::StyleSet {
     let default = config::Style::default();
     let default = defs.get(&StyleId::Default).unwrap().to_config(default);
 
+    ret.insert(State::Default, default);
+
     for (state, id) in styles {
         // xxx: unwrap is bad smell here, error handling!
         let s = defs.get(&StyleId::Define(id)).unwrap().to_config(default);

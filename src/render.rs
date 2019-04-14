@@ -53,7 +53,7 @@ impl CairoRenderer {
     ) {
         cr.save();
 
-        self.set_pattern(cr, self.default_style.background);
+        self.set_pattern(cr, &self.default_style.background);
         cr.paint();
 
         for gauge in &self.pages[self.page] {
@@ -63,7 +63,7 @@ impl CairoRenderer {
         cr.restore();
     }
 
-    fn set_color(&self, cr: &Context, color: Color) {
+    fn set_color(&self, cr: &Context, color: &Color) {
         cr.set_source_rgba(
             color.0.into(),
             color.1.into(),
@@ -72,13 +72,26 @@ impl CairoRenderer {
         );
     }
 
-    fn set_pattern(&self, cr: &Context, pat: Pattern) {
+    fn set_pattern(&self, cr: &Context, pat: &Pattern) -> bool{
         match pat {
-            Pattern::Hidden => cr.set_source_rgba(0.0, 0.0, 0.0, 0.0),
+            Pattern::Hidden => {return false},
             Pattern::Solid(c) => self.set_color(cr, c),
             Pattern::SlowBlink(c) => self.set_color(cr, c),
             Pattern::FastBlink(c) => self.set_color(cr, c)
         }
+
+        true
+    }
+
+    fn get_style(&self, g: &Gauge, _state: &State) -> Style {
+        // XXX: do actual lookup
+        let state = &config::State::Default;
+        let style = g.styles.get(state);
+        *(style).unwrap()
+    }
+
+    fn set_foreground(&self, cr: &Context, g: &Gauge, state: &State) -> bool {
+        self.set_pattern(cr, &self.get_style(g, state).foreground)
     }
 
     fn render_gauge(
@@ -87,9 +100,7 @@ impl CairoRenderer {
         gauge: &Gauge,
         state: &State
     ) {
-        let kind = &gauge.kind;
-
-        match kind {
+        match &gauge.kind  {
             GaugeType::Dial(opts) => self.dial(cr, gauge, opts, state),
             GaugeType::VerticalBar(opts) => {println!("{:?}", opts)}
             GaugeType::HorizontalBar(opts) => {println!("{:?}", opts)}
@@ -114,14 +125,14 @@ impl CairoRenderer {
         let cx = (bounds.x + bounds.width / 2.0) as f64;
         let cy = (bounds.y + bounds.height / 2.0) as f64;
 
-        self.set_pattern(cr, self.default_style.foreground);
-        cr.arc(cx, cy, radius, 0.0, 2.0 * PI);
-
-        match scale.3 {
-            GaugeStyle::IndicatorOnly => (),
-            GaugeStyle::Outline => cr.stroke(),
-            GaugeStyle::Filled => cr.fill(),
-            GaugeStyle::Dashed => cr.fill(), // xxx not implemented
+        if self.set_foreground(cr, gauge, state) {
+            cr.arc(cx, cy, radius, 0.0, 2.0 * PI);
+            match scale.3 {
+                GaugeStyle::IndicatorOnly => (),
+                GaugeStyle::Outline => cr.stroke(),
+                GaugeStyle::Filled => cr.fill(),
+                GaugeStyle::Dashed => cr.fill(), // xxx not implemented
+            }
         }
 
         cr.restore();
