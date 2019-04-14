@@ -26,7 +26,6 @@ enum Color {
     Yellow,
     Green,
     Blue,
-    Indigo,
     Violet,
     RGBA(f32, f32, f32, f32)
 }
@@ -43,8 +42,7 @@ impl Color {
             Color::Yellow => config::Color(0.0, 1.0, 1.0, 1.0),
             Color::Green  => config::Color(0.0, 1.0, 0.0, 1.0),
             Color::Blue   => config::Color(0.0, 0.0, 1.0, 1.0),
-            Color::Indigo => config::Color(0.5, 1.0, 1.0, 1.0),
-            Color::Violet => config::Color(0.5, 1.0, 1.0, 1.0),
+            Color::Violet => config::Color(1.0, 0.0, 1.0, 1.0),
             Color::RGBA(r, g, b, a) => config::Color(r, g, b, a)
         }
     }

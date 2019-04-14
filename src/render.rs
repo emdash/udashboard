@@ -3,7 +3,7 @@ use std::fs::File;
 use std::f64::consts::PI;
 
 use cairo;
-use cairo::{Context, Format, ImageSurface};
+use cairo::{Context, Format, ImageSurface, TextExtents};
 
 use crate::config;
 use crate::config::{
@@ -90,6 +90,10 @@ impl CairoRenderer {
         *(style).unwrap()
     }
 
+    fn set_background(&self, cr: &Context, g: &Gauge, state: &State) -> bool {
+        self.set_pattern(cr, &self.get_style(g, state).background)
+    }
+
     fn set_foreground(&self, cr: &Context, g: &Gauge, state: &State) -> bool {
         self.set_pattern(cr, &self.get_style(g, state).foreground)
     }
@@ -140,6 +144,14 @@ impl CairoRenderer {
                 GaugeStyle::Dashed => cr.fill(), // xxx not implemented
             }
         }
+
+        self.set_pattern(cr, &self.default_style.background);
+        cr.set_font_size(14.0);
+
+        let extents = cr.text_extents(&gauge.label);
+        cr.move_to(-extents.width / 2.0, radius * 0.15 + extents.height);
+        println!("Got here");
+        cr.show_text(&gauge.label);
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
