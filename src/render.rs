@@ -1,5 +1,6 @@
 // Cairo rendering implementation
 use std::fs::File;
+use std::f64::consts::PI;
 
 use cairo;
 use cairo::{Context, Format, ImageSurface};
@@ -13,7 +14,7 @@ use crate::config::{
     GaugeStyle,
     GaugeType,
     Lamp,
-    Range,
+    Scale,
     Color,
     Screen,
     Style,
@@ -24,14 +25,17 @@ use crate::config::{
 use crate::data::State;
 
 fn pattern_from_color(color: Color) -> cairo::Pattern {
-    cairo::Pattern::SolidPattern(cairo::SolidPattern::from_rgba(
+    let ret = cairo::SolidPattern::from_rgba(
         color.0.into(),
         color.1.into(),
         color.2.into(),
         color.3.into()
-    ))
+    );
+
+    cairo::Pattern::SolidPattern(ret)
 }
 
+#[derive(Debug)]
 enum Pattern {
     Hidden,
     Solid(cairo::Pattern),
@@ -43,8 +47,9 @@ impl Pattern {
     pub fn new(config: config::Pattern) -> Pattern {
         match config {
             config::Pattern::Hidden => Pattern::Hidden,
-            config::Pattern::Solid(x) =>
-                Pattern::Solid(pattern_from_color(x)),
+            config::Pattern::Solid(x) => {
+                Pattern::Solid(pattern_from_color(x))
+            },
             config::Pattern::SlowBlink(x) =>
                 Pattern::SlowBlink(pattern_from_color(x)),
             config::Pattern::FastBlink(x) =>
@@ -62,7 +67,9 @@ impl Pattern {
         let fast_blink = (time / 250) % 2 == 1;
         match self {
             Pattern::Hidden => cr.set_source(null.into()),
-            Pattern::Solid(x) => cr.set_source(&x),
+            Pattern::Solid(x) => {
+                cr.set_source(&x)
+            },
             Pattern::SlowBlink(x) => if slow_blink {
                 cr.set_source(&x);
             } else {
@@ -125,15 +132,50 @@ impl CairoRenderer {
         gauge: &Gauge,
         state: &State
     ) {
-        match &gauge.kind {
-            GaugeType::Dial(r, d, s) => {println!("{:?}", (r, d, s))}
-            GaugeType::VerticalBar(r, d, s) => {println!("{:?}", (r, d, s))}
-            GaugeType::HorizontalBar(r, d, s) => {println!("{:?}", (r, d, s))}
-            GaugeType::VerticalWedge(r, d, s) => {println!("{:?}", (r, d, s))}
-            GaugeType::HorizontalWedge(r, d, s) => {println!("{:?}", (r, d, s))}
+        let label = &gauge.label;
+        let kind = &gauge.kind;
+        let value = state.values.get(&gauge.channel);
+        let bounds = &gauge.bounds;
+        // XXX: get style
+
+        println!("{:?}", bounds);
+
+        match kind {
+            GaugeType::Dial(opts) => self.dial(cr, bounds, opts, label, value),
+            GaugeType::VerticalBar(opts) => {println!("{:?}", opts)}
+            GaugeType::HorizontalBar(opts) => {println!("{:?}", opts)}
+            GaugeType::VerticalWedge(opts) => {println!("{:?}", opts)}
+            GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)}
             GaugeType::IdiotLight(l) => {println!("{:?}", l)},
             GaugeType::Text(f, s) => {println!("{:?}", s)}
         }
+    }
+
+    fn dial(
+        &self,
+        cr: &Context,
+        bounds: &Bounds,
+        scale: &Scale,
+        label: &String,
+        value: Option<&f32>
+    ) {
+        cr.save();
+
+        let radius = (bounds.width.min(bounds.height) / 2.0) as f64;
+        let cx = (bounds.x + bounds.width / 2.0) as f64;
+        let cy = (bounds.y + bounds.height / 2.0) as f64;
+
+        cr.set_source_rgb(1.0, 0.0, 0.0);
+        cr.arc(cx, cy, radius, 0.0, 2.0 * PI);
+
+        match scale.3 {
+            GaugeStyle::IndicatorOnly => (),
+            GaugeStyle::Outline => cr.stroke(),
+            GaugeStyle::Filled => cr.fill(),
+            GaugeStyle::Dashed => cr.fill(), // xxx not implemented
+        }
+
+        cr.restore();
     }
 }
 
@@ -172,6 +214,7 @@ impl PNGRenderer {
         self.renderer.render(&cr, state);
         let mut file = File::create(self.path.clone())
             .expect("couldn't create file");
-        surface.write_to_png(&mut file);
+
+        surface.write_to_png(&mut file).unwrap();
     }
 }

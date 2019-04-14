@@ -23,15 +23,15 @@ pub enum Format {
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
-pub struct Range(f32, f32);
-
-#[derive(Deserialize, Debug, Copy, Clone)]
 pub enum GaugeStyle {
     IndicatorOnly,
     Outline,
     Filled,
     Dashed
 }
+
+#[derive(Deserialize, Debug, Copy, Clone)]
+pub struct Scale(pub f32, pub f32, pub Divisions, pub GaugeStyle);
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Lamp {
@@ -43,11 +43,11 @@ pub enum Lamp {
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum GaugeType {
-    Dial(Range, Divisions, GaugeStyle),
-    VerticalBar(Range, Divisions, GaugeStyle),
-    HorizontalBar(Range, Divisions, GaugeStyle),
-    VerticalWedge(Range, Divisions, GaugeStyle),
-    HorizontalWedge(Range, Divisions, GaugeStyle),
+    Dial(Scale),
+    VerticalBar(Scale),
+    HorizontalBar(Scale),
+    VerticalWedge(Scale),
+    HorizontalWedge(Scale),
     IdiotLight(Lamp),
     Text(Format, GaugeStyle),
 }

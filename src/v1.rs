@@ -207,11 +207,11 @@ impl Layout {
                     height: p2.y - p1.y
                 }
             }, Layout::Grid(size, pos) => {
-                let cell_width = screen.width / size.0 as f32;
-                let cell_height = screen.height / size.1 as f32;
+                let cell_width = screen.width / size.1 as f32;
+                let cell_height = screen.height / size.0 as f32;
                 Bounds {
-                    x: pos.0 as f32 * cell_width,
-                    y: pos.1 as f32 * cell_height,
+                    x: pos.1 as f32 * cell_width,
+                    y: pos.0 as f32 * cell_height,
                     width: cell_width,
                     height: cell_height
                 }
