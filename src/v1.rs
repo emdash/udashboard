@@ -39,7 +39,7 @@ impl Color {
             Color::White  => config::Color(1.0, 1.0, 1.0, 1.0),
             Color::Grey   => config::Color(0.7, 0.7, 0.7, 1.0),
             Color::Red    => config::Color(1.0, 0.0, 0.0, 1.0),
-            Color::Orange => config::Color(1.0, 0.5, 0.5, 1.0),
+            Color::Orange => config::Color(1.0, 0.5, 0.0, 1.0),
             Color::Yellow => config::Color(0.0, 1.0, 1.0, 1.0),
             Color::Green  => config::Color(0.0, 1.0, 0.0, 1.0),
             Color::Blue   => config::Color(0.0, 0.0, 1.0, 1.0),

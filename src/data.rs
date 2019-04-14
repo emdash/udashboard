@@ -39,4 +39,12 @@ impl State {
             time: sample.time
         }
     }
+
+    pub fn get(&self, key: &String) -> Option<f32> {
+        if let Some(value) = self.values.get(key) {
+            Some(*value)
+        } else {
+            None
+        }
+    }
 }

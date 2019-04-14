@@ -94,6 +94,10 @@ impl CairoRenderer {
         self.set_pattern(cr, &self.get_style(g, state).foreground)
     }
 
+    fn set_indicator(&self, cr: &Context, g: &Gauge, state: &State) -> bool {
+        self.set_pattern(cr, &self.get_style(g, state).indicator)
+    }
+
     fn render_gauge(
         &self,
         cr: &Context,
@@ -125,14 +129,34 @@ impl CairoRenderer {
         let cx = (bounds.x + bounds.width / 2.0) as f64;
         let cy = (bounds.y + bounds.height / 2.0) as f64;
 
+        cr.translate(cx, cy);
+
         if self.set_foreground(cr, gauge, state) {
-            cr.arc(cx, cy, radius, 0.0, 2.0 * PI);
+            cr.arc(0.0, 0.0, radius, 0.0, 2.0 * PI);
             match scale.3 {
                 GaugeStyle::IndicatorOnly => (),
                 GaugeStyle::Outline => cr.stroke(),
                 GaugeStyle::Filled => cr.fill(),
                 GaugeStyle::Dashed => cr.fill(), // xxx not implemented
             }
+        }
+
+        if self.set_indicator(cr, gauge, state) {
+            if let Some(value) = state.get(&gauge.channel) {
+                let range = scale.0 - scale.1;
+                let angle = 2.0 * PI * (((value - scale.0) / range) as f64);
+
+                cr.new_path();
+                cr.rotate(angle);
+                cr.move_to(-5.0, 0.0);
+                cr.rel_line_to(0.0, -radius);
+                cr.line_to(5.0, 0.0);
+                cr.close_path();
+                cr.fill();
+            }
+
+            cr.arc(0.0, 0.0, radius / 10.0, 0.0, 2.0 * PI);
+            cr.fill();
         }
 
         cr.restore();

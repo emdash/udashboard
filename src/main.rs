@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use udashboard::v1;
 use udashboard::config::{Style, Pattern, Color};
 use udashboard::render::PNGRenderer;
@@ -16,6 +18,15 @@ fn main() {
         }
     );
 
-    renderer.render(&State::new());
+    let mut values = HashMap::new();
+    values.insert("RPM".to_string(), 1500.0 as f32);
+
+    let state = State {
+        values: values,
+        states: HashMap::new(),
+        time: 0
+    };
+
+    renderer.render(&state);
     // start update loop.
 }
