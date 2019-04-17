@@ -3,13 +3,15 @@ authors = ["Brandon Lewis <dotsony@gmail.com>"]
 edition = "2018"
 name = "udashboard"
 version = "0.1.0"
+
 [dependencies]
 ron = "*"
 drm-rs = "*"
 
 [dependencies.cairo-rs]
+default-features = false
 features = ["png"]
-version = "^0"
+
 
 [dependencies.serde]
 features = ["derive"]
