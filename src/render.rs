@@ -175,7 +175,6 @@ impl CairoRenderer {
     }
 }
 
-
 pub struct PNGRenderer {
     renderer: CairoRenderer,
     path: String,

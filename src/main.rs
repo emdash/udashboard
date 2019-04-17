@@ -4,6 +4,7 @@ use udashboard::v1;
 use udashboard::config::{Style, Pattern, Color};
 use udashboard::render::PNGRenderer;
 use udashboard::data::State;
+use udashboard::output::drm_magic;
 
 fn main() {
     let config = v1::load("config.ron".to_string()).unwrap();
@@ -29,4 +30,6 @@ fn main() {
 
     renderer.render(&state);
     // start update loop.
+
+    drm_magic();
 }
