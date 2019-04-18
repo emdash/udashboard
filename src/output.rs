@@ -8,11 +8,33 @@ use std::{
 };
 
 use drm::{
+    drm::Capability,
     drm_mode,
-    drm_mode::{Crtc, Encoder, Connector}
+    drm_mode::{Crtc, Encoder, ModeInfo, Connection}
 };
 
-const device: &str = "/dev/dri/card0";
+
+#[derive(Debug)]
+struct Connector {
+    pub id: u32,
+    pub encoder_id: u32,
+    pub state: Connection,
+    pub type_name: &'static str,
+    pub modes: Vec<ModeInfo>
+}
+
+impl Connector {
+    pub fn new(connector: drm_mode::Connector) -> Connector {
+        Connector {
+            id: connector.get_connector_id(),
+            encoder_id: connector.get_encoder_id(),
+            state: connector.get_connection(),
+            type_name: connector.get_type_name(),
+            modes: connector.get_modes()
+        }
+    }
+}
+
 
 #[derive(Debug)]
 struct Resources {
@@ -27,65 +49,64 @@ impl Resources {
     pub fn new(fd: RawFd) -> Option<Resources> {
         let resources = drm_mode::get_resources(fd)?;
         let count_fbs = resources.get_count_fbs();
-        let crtcs = Resources::map(
-            resources.get_crtcs(),
-            |id| drm_mode::get_crtc(fd, id)
-        );
-        let encoders = Resources::map(
-            resources.get_encoders(),
-            |id| drm_mode::get_encoder(fd, id)
-        );
-        let connectors = Resources::map(
-            resources.get_connectors(),
-            |id| drm_mode::get_connector(fd, id)
-        );
+        let crtcs = resources
+            .get_crtcs()
+            .into_iter()
+            .filter_map(|id| drm_mode::get_crtc(fd, id))
+            .collect();
+
+        let encoders = resources
+            .get_encoders()
+            .into_iter()
+            .filter_map(|id| drm_mode::get_encoder(fd, id))
+            .collect();
+
+        let connectors = resources
+            .get_connectors()
+            .into_iter()
+            .filter_map(|id| drm_mode::get_connector(fd, id))
+            .map(|c| Connector::new(c))
+            .collect();
+
         Some(Resources {count_fbs, crtcs, encoders, connectors})
-    }
-
-    // I am really, really tired of getting nasty compiler errors when
-    // I try to do things like iter().map()....collect(). It shouldn't
-    // be this fucking hard, but I always get weird type mismatch
-    // errors because the compiler is too stupid to figure out what
-    // 99% of us actually want.
-    //
-    // Seriously, why does *this* work, when all that iterator
-    // nonsense never seems to compile>?
-    //
-    // And why can't some simple api for transforming vectors just be
-    // part of std?
-    fn map<A, B, F>(collection: Vec<A>, func: F) -> Vec<B>
-        where F: Fn(A) -> Option<B>
-    {
-        let mut ret = Vec::new();
-
-        for a in collection {
-            if let Some(b) = func(a) {
-                ret.push(b);
-            }
-        }
-
-        ret
     }
 }
 
 struct OutputDevice {
-    fd: RawFd,
+    fd: RawFd
 }
 
 impl OutputDevice {
     pub fn open_drm(path: &str) -> Result<OutputDevice> {
-        let fd = File::open(device)?.into_raw_fd();
+        let fd = File::open(path)?.into_raw_fd();
         Ok(OutputDevice { fd })
     }
 
     pub fn get_resources(&self) -> Option<Resources> {
         Resources::new(self.fd)
     }
+
+    pub fn has(&self, cap: Capability) -> Option<bool> {
+        match drm::drm::get_cap(self.fd, cap) {
+            Ok(has_cap) => Some(has_cap == 1),
+            _ => None
+        }
+    }
 }
 
+
 pub fn drm_magic() {
+    let device = "/dev/dri/card0";
     let output = OutputDevice::open_drm(device).expect("Couldn't open device");
-    if let Some(resources) = output.get_resources() {
-        println!("{:?}", resources);
+    let has_dumb_buffer = output
+        .has(Capability::DumbBuffer)
+        .expect("Get Capability Failed");
+
+    if has_dumb_buffer {
+        if let Some(resources) = output.get_resources() {
+            println!("{:#?}", resources);
+        }
+    } else {
+        println!("Device doesn't have dumb buffer support.");
     }
 }
