@@ -1,6 +1,9 @@
 use std::{
-    io::{Error, Result},
+    collections::HashMap,
+    ffi::c_void,
     fs::File,
+    io::{Error, Result},
+    intrinsics::transmute,
     os::unix::io::{
         IntoRawFd,
         RawFd
@@ -10,71 +13,38 @@ use std::{
 use drm::{
     drm::Capability,
     drm_mode,
-    drm_mode::{Crtc, Encoder, ModeInfo, Connection}
+    drm_mode::{
+        Crtc,
+        CrtcId,
+        Encoder,
+        EncoderId,
+        ModeInfo,
+        Connection,
+        Connector
+    },
+    ffi
 };
 
 
+// A display is a particular combination of connector, encoder, crt,
+// operating in a given mode.
 #[derive(Debug)]
-struct Connector {
-    pub id: u32,
-    pub encoder_id: u32,
-    pub state: Connection,
-    pub type_name: &'static str,
-    pub modes: Vec<ModeInfo>
-}
-
-impl Connector {
-    pub fn new(connector: drm_mode::Connector) -> Connector {
-        Connector {
-            id: connector.get_connector_id(),
-            encoder_id: connector.get_encoder_id(),
-            state: connector.get_connection(),
-            type_name: connector.get_type_name(),
-            modes: connector.get_modes()
-        }
-    }
+struct Display {
+    pub geometry: (u32, u32),
+    pub mode: ModeInfo,
+    pub encoder: Encoder,
+    pub crtc: Crtc
 }
 
 
-#[derive(Debug)]
-struct Resources {
-    pub count_fbs: i32,
-    pub crtcs: Vec<Crtc>,
-    pub encoders: Vec<Encoder>,
-    pub connectors: Vec<Connector>
-}
+// our drm-rs crate provides no abstraction over buffers.
+struct Buffer {}
 
-
-impl Resources {
-    pub fn new(fd: RawFd) -> Option<Resources> {
-        let resources = drm_mode::get_resources(fd)?;
-        let count_fbs = resources.get_count_fbs();
-        let crtcs = resources
-            .get_crtcs()
-            .into_iter()
-            .filter_map(|id| drm_mode::get_crtc(fd, id))
-            .collect();
-
-        let encoders = resources
-            .get_encoders()
-            .into_iter()
-            .filter_map(|id| drm_mode::get_encoder(fd, id))
-            .collect();
-
-        let connectors = resources
-            .get_connectors()
-            .into_iter()
-            .filter_map(|id| drm_mode::get_connector(fd, id))
-            .map(|c| Connector::new(c))
-            .collect();
-
-        Some(Resources {count_fbs, crtcs, encoders, connectors})
-    }
-}
 
 struct OutputDevice {
     fd: RawFd
 }
+
 
 impl OutputDevice {
     pub fn open_drm(path: &str) -> Result<OutputDevice> {
@@ -82,14 +52,38 @@ impl OutputDevice {
         Ok(OutputDevice { fd })
     }
 
-    pub fn get_resources(&self) -> Option<Resources> {
-        Resources::new(self.fd)
-    }
-
     pub fn has(&self, cap: Capability) -> Option<bool> {
         match drm::drm::get_cap(self.fd, cap) {
             Ok(has_cap) => Some(has_cap == 1),
             _ => None
+        }
+    }
+
+    pub fn get_available_displays(&self) -> Vec<Display> {
+        let resources = drm_mode::get_resources(self.fd)
+            .expect("Couldn't get resources");
+
+        resources.get_connectors()
+            .into_iter()
+            .filter_map(|id| drm_mode::get_connector(self.fd, id))
+            .filter(|c| c.get_count_modes() > 0)
+            .filter(|c| c.get_connection() == Connection::Connected)
+            .map(|c| self.create_display_for_connector(c))
+            .collect()
+    }
+
+    fn create_display_for_connector(&self, connector: Connector) -> Display {
+        let mode = connector.get_modes()[0].clone();
+        let encoder = drm_mode::get_encoder(self.fd, connector.get_encoder_id())
+            .expect("Connector does not have an encoder.");
+        let crtc = drm_mode::get_crtc(self.fd, encoder.get_crtc_id())
+            .expect("Encoder does not have a crtc.");
+
+        Display {
+            geometry: (mode.get_hdisplay().into(), mode.get_vdisplay().into()),
+            mode: mode,
+            encoder: encoder,
+            crtc: crtc
         }
     }
 }
@@ -103,9 +97,7 @@ pub fn drm_magic() {
         .expect("Get Capability Failed");
 
     if has_dumb_buffer {
-        if let Some(resources) = output.get_resources() {
-            println!("{:#?}", resources);
-        }
+        println!("{:#?}", output.get_available_displays());
     } else {
         println!("Device doesn't have dumb buffer support.");
     }
