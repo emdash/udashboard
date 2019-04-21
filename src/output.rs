@@ -1,104 +1,129 @@
 use std::{
-    collections::HashMap,
-    ffi::c_void,
-    fs::File,
-    io::{Error, Result},
-    intrinsics::transmute,
+    fs::{OpenOptions},
+    io::{Result},
     os::unix::io::{
         IntoRawFd,
-        RawFd
+        RawFd,
+        AsRawFd
     }
 };
 
 use drm::{
-    drm::Capability,
-    drm_mode,
-    drm_mode::{
-        Crtc,
-        CrtcId,
-        Encoder,
-        EncoderId,
-        ModeInfo,
-        Connection,
-        Connector
-    },
-    ffi
+    Device as BasicDevice,
+    buffer::PixelFormat,
+    control::{
+        ResourceHandle,
+        ResourceInfo,
+        Device as ControlDevice,
+        connector,
+        crtc,
+        dumbbuffer,
+        framebuffer
+    }
 };
 
-
-// A display is a particular combination of connector, encoder, crt,
-// operating in a given mode.
-#[derive(Debug)]
-struct Display {
-    pub geometry: (u32, u32),
-    pub mode: ModeInfo,
-    pub encoder: Encoder,
-    pub crtc: Crtc
-}
-
-
-// our drm-rs crate provides no abstraction over buffers.
-struct Buffer {}
-
-
-struct OutputDevice {
+struct Card {
     fd: RawFd
 }
 
+impl AsRawFd for Card {
+    fn as_raw_fd(&self) -> RawFd { self.fd }
+}
 
-impl OutputDevice {
-    pub fn open_drm(path: &str) -> Result<OutputDevice> {
-        let fd = File::open(path)?.into_raw_fd();
-        Ok(OutputDevice { fd })
-    }
 
-    pub fn has(&self, cap: Capability) -> Option<bool> {
-        match drm::drm::get_cap(self.fd, cap) {
-            Ok(has_cap) => Some(has_cap == 1),
-            _ => None
-        }
-    }
-
-    pub fn get_available_displays(&self) -> Vec<Display> {
-        let resources = drm_mode::get_resources(self.fd)
-            .expect("Couldn't get resources");
-
-        resources.get_connectors()
-            .into_iter()
-            .filter_map(|id| drm_mode::get_connector(self.fd, id))
-            .filter(|c| c.get_count_modes() > 0)
-            .filter(|c| c.get_connection() == Connection::Connected)
-            .map(|c| self.create_display_for_connector(c))
-            .collect()
-    }
-
-    fn create_display_for_connector(&self, connector: Connector) -> Display {
-        let mode = connector.get_modes()[0].clone();
-        let encoder = drm_mode::get_encoder(self.fd, connector.get_encoder_id())
-            .expect("Connector does not have an encoder.");
-        let crtc = drm_mode::get_crtc(self.fd, encoder.get_crtc_id())
-            .expect("Encoder does not have a crtc.");
-
-        Display {
-            geometry: (mode.get_hdisplay().into(), mode.get_vdisplay().into()),
-            mode: mode,
-            encoder: encoder,
-            crtc: crtc
-        }
+impl BasicDevice for Card {}
+impl ControlDevice for Card {}
+impl Card {
+    pub fn open(path: &str) -> Result<Card> {
+        let fd = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?.into_raw_fd();
+        Ok(Card{fd})
     }
 }
 
 
-pub fn drm_magic() {
-    let device = "/dev/dri/card0";
-    let output = OutputDevice::open_drm(device).expect("Couldn't open device");
-    let has_dumb_buffer = output
-        .has(Capability::DumbBuffer)
-        .expect("Get Capability Failed");
+pub fn drm_magic() -> Result<()> {
+    let card = Card::open("/dev/dri/card0")?;
 
-    if has_dumb_buffer {
-        println!("{:#?}", output.get_available_displays());
-    } else {
-        println!("Device doesn't have dumb buffer support.");
+    // Load the information.
+    let res = card
+        .resource_handles()
+        .expect("Could not load normal resource ids.");
+    let coninfo: Vec<connector::Info> = load_information(&card, res.connectors());
+    let crtcinfo: Vec<crtc::Info> = load_information(&card, res.crtcs());
+
+    // Filter each connector until we find one that's connected.
+    let con = coninfo
+        .iter()
+        .filter(|&i| i.connection_state() == connector::State::Connected)
+        .next()
+        .expect("No connected connectors");
+
+    // Get the first (usually best) mode
+    let &mode = con
+        .modes()
+        .iter()
+        .next()
+        .expect("No modes found on connector");
+
+    // Find a crtc and FB
+    let crtc = crtcinfo.iter().next().expect("No crtcs found");
+
+    // Select the pixel format
+    let fmt = PixelFormat::XRGB8888;
+    //let fmt = PixelFormat::RGBA8888;
+    //let fmt = PixelFormat::ARGB4444;
+
+    // Create a DB
+    let mut db = dumbbuffer::DumbBuffer::create_from_device(&card, (1920, 1080), fmt)
+        .expect("Could not create dumb buffer");
+
+    // Map it and grey it out.
+    {
+        let mut map = db.map(&card).expect("Could not map dumbbuffer");
+        for b in map.as_mut() {
+            *b = 128;
+        }
     }
+
+    // Create an FB:
+    let fbinfo = framebuffer::create(&card, &db).expect("Could not create FB");
+
+    println!("{:#?}", mode);
+    println!("{:#?}", fbinfo);
+    println!("{:#?}", db);
+
+    // Set the crtc
+    // On many setups, this requires root access.
+    crtc::set(
+        &card,
+        crtc.handle(),
+        fbinfo.handle(),
+        &[con.handle()],
+        (0, 0),
+        Some(mode),
+    )
+        .expect("Could not set CRTC");
+
+    let five_seconds = ::std::time::Duration::from_millis(5000);
+    ::std::thread::sleep(five_seconds);
+
+    framebuffer::destroy(&card, fbinfo.handle()).unwrap();
+    db.destroy(&card).unwrap();
+
+    Ok(())
+}
+
+
+fn load_information<T, U>(card: &Card, handles: &[T]) -> Vec<U>
+    where
+    T: ResourceHandle,
+    U: ResourceInfo<Handle = T>,
+{
+    handles
+        .iter()
+        .map(|&h| card.resource_info(h).expect("Could not load resource info"))
+        .collect()
 }

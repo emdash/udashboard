@@ -3,24 +3,24 @@ use std::fs::File;
 use std::f64::consts::PI;
 
 use cairo;
-use cairo::{Context, Format, ImageSurface, TextExtents};
+use cairo::{Context, Format, ImageSurface};
 
 use crate::config;
 use crate::config::{
-    Bounds,
+    // Bounds,
     Color,
-    Config,
-    Divisions,
+    // Config,
+    // Divisions,
     Gauge,
     GaugeStyle,
     GaugeType,
-    Lamp,
+    // Lamp,
     Pattern,
     Scale,
     Screen,
     Style,
-    StyleSet,
-    Unit
+    // StyleSet,
+    // Unit
 };
 
 use crate::data::State;

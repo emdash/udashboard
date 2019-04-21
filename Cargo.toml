@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 ron = "*"
-drm-rs = "*"
+drm = "*"
 
 [dependencies.cairo-rs]
 default-features = false
