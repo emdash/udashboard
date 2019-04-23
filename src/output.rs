@@ -14,7 +14,7 @@ use cairo_sys as ffi;
 
 use drm::{
     Device as BasicDevice,
-    buffer::PixelFormat,
+    buffer::{Buffer, PixelFormat},
     control::{
         Device as ControlDevice,
         Mode,
@@ -103,7 +103,6 @@ fn await_vblank(card: &Card) {
 struct Page {
     pub fb: FrameBufferHandle,
     pub db: DumbBuffer,
-    sz: (u16, u16)
 }
 
 impl Page {
@@ -118,16 +117,19 @@ impl Page {
 
         let fb = fb.handle();
 
-        Page {fb, db, sz}
+        Page {fb, db}
     }
 
-    pub fn render<T>(&mut self, card: &Card, mut func: T) where T: FnMut(&Context) {
-        let (w, h): (i32, i32) = widen(self.sz);
+    pub fn render<T>(&mut self, card: &Card, mut func: T)
+        where T: FnMut(&Context)
+    {
+        let (w, h) = self.db.size();
+        let pitch = self.db.pitch();
         let mut dm = self.db.map(card).expect("!");
 
-
         // XXX: @u$)(@#@ ImageSurface::create_for_data() requires
-        // 'static!!?!? WHAT THE HELL AM I SUPPOSED TO DO HERE?
+        // 'static!!?!? So we have to use unsafe even though we can
+        // statically prove that dm lives longer than the context.
         let ptr = dm.as_mut().as_mut_ptr();
 
         unsafe {
@@ -135,9 +137,11 @@ impl Page {
                 ffi::cairo_image_surface_create_for_data(
                     ptr,
                     Format::Rgb16_565.into(),
-                    w, h,
-                    w * 2
+                    w as i32,
+                    h as i32,
+                    pitch as i32
                 )
+
             ).expect("!");
             func(&Context::new(&surface));
         }
