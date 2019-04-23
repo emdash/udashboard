@@ -114,12 +114,7 @@ impl Page {
         let fmt = PixelFormat::RGB565;
         let sz = mode.size();
         let db = DumbBuffer::create_from_device(card, widen(sz), fmt).expect("!");
-        let fb = createfb(card, &db).expect("!");
-
-        println!("{:?}", fb);
-
-        let fb = fb.handle();
-
+        let fb = createfb(card, &db).expect("!").handle();
         Page {fb, db}
     }
 
@@ -206,8 +201,8 @@ fn render(card: Card, renderer: CairoRenderer) {
     crtc::set(&card, crtc.handle(), pages[1].fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
 
-    for i in (0..1).cycle() {
-        let val = (0.5 * clock.seconds().sin() + 1.0) as f32;
+    for i in (0..pages.len()).cycle() {
+        let val = (0.5 * ((clock.seconds() * 2.0).sin() + 1.0)) as f32;
         state.values.insert("RPM".to_string(), 1500.0 * val);
         let page = &mut pages[i];
 

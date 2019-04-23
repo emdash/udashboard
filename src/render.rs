@@ -150,7 +150,6 @@ impl CairoRenderer {
 
         let extents = cr.text_extents(&gauge.label);
         cr.move_to(-extents.width / 2.0, radius * 0.15 + extents.height);
-        println!("Got here");
         cr.show_text(&gauge.label);
 
         if self.set_indicator(cr, gauge, state) {
