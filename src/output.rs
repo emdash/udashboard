@@ -130,7 +130,7 @@ impl Page {
         // statically prove that dm lives longer than the context.
         let ptr = dm.as_mut().as_mut_ptr();
 
-        unsafe {
+        func(& unsafe {
              let surface = ImageSurface::from_raw_full(
                 ffi::cairo_image_surface_create_for_data(
                     ptr,
@@ -141,8 +141,8 @@ impl Page {
                 )
 
             ).expect("!");
-            func(&Context::new(&surface));
-        }
+            Context::new(&surface)
+        })
     }
 }
 
