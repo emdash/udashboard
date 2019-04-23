@@ -7,3 +7,4 @@ pub mod config;
 pub mod render;
 pub mod data;
 pub mod output;
+pub mod clock;
