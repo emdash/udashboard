@@ -207,7 +207,8 @@ fn render(card: Card, renderer: CairoRenderer) {
         .expect("Could not set CRTC");
 
     for i in (0..1).cycle() {
-        let val = clock.seconds().sin() + 1.0;
+        let val = (0.5 * clock.seconds().sin() + 1.0) as f32;
+        state.values.insert("RPM".to_string(), 1500.0 * val);
         let page = &mut pages[i];
 
         // Fill the buffers with values.
