@@ -6,7 +6,7 @@ use std::{
     os::unix::io::{
         RawFd,
         AsRawFd
-    },
+    }
 };
 
 use drm::{
@@ -19,11 +19,14 @@ use drm::{
         ResourceInfo,
         connector,
         crtc,
-        dumbbuffer,
-        framebuffer
+        dumbbuffer::{DumbBuffer, DumbMapping},
+        framebuffer::{
+            Info as FrameBuffer,
+            Handle as FrameBufferHandle,
+            create as createfb
+        }
     }
 };
-
 
 use nix::sys::select::{FdSet, select};
 
@@ -63,142 +66,128 @@ impl Card {
 }
 
 
-// Since the primary use case is for a single display, we just move
-// the card into the display. In the kernel it's the other way around:
-// the card owns all its resources. But in userland, all the relevant
-// calls are implemented as ioctls on the card. If we need multiple
-// displays, probably just wrapping this in Rc<Card> or Arc<Card> would
-// be enough.
-struct Display {
-    card: Card
-}
+fn await_vblank(card: &Card) {
+    let mut fds = FdSet::new();
+    fds.insert(card.as_raw_fd());
 
-impl Display {
-    pub fn new(card: Card) -> Display {Display{card}}
-
-    pub fn render_loop(self) {
-        // Load the information.
-        let res = self.card
-            .resource_handles()
-            .expect("Could not load normal resource ids.");
-
-        let connectors: Vec<connector::Info> =
-            load_information(&self.card, res.connectors());
-
-        let connector = connectors
-            .iter()
-            .filter(|c| c.connection_state() == connector::State::Connected)
-            .next()
-            .expect("No display is connected.");
-
-        // Get the first (usually best) mode
-        let &mode = connector
-            .modes()
-            .iter()
-            .next()
-            .expect("No modes found on connector.");
-
-        let crtcs: Vec<crtc::Info> = load_information(&self.card, res.crtcs());
-        let crtc = crtcs
-            .iter()
-            .next()
-            .expect("Couldn't get crtc");
-
-        let index = [0, 1];
-        let mut front = self.create_fb(mode);
-        let mut back = self.create_fb(mode);
-        let fbs = [front.0.handle(), back.0.handle()];
-        let mut bufs = [
-            front.1.map(&self.card).expect("!"),
-            back.1.map(&self.card).expect("!")
-        ];
-        let clock = Clock::new();
-
-        // Set initial mode on the crtc.
-        crtc::set(
-            &self.card,
-            crtc.handle(),
-            fbs[0],
-            &[connector.handle()],
-            (0, 0),
-            Some(mode)
-        ).expect("Could not set CRTC");
-
-        for &index in index.iter().cycle() {
-            let fb = fbs[index];
-            let buf = &mut bufs[index];
-
-            // Fill the buffers with values.
-            render(
-                ((clock.seconds().sin() * 127.0) + 128.0) as u8,
-                buf.as_mut()
-            );
-
-            // Request a page flip. The actual page flip will happen
-            // some time later. We cannot call this again until we
-            // have received the page flip event, but the page flip is
-            // handled for us.
-            crtc::page_flip(
-                &self.card,
-                crtc.handle(),
-                fb,
-                &[crtc::PageFlipFlags::PageFlipEvent]
-            ).expect("Could not set CRTC");
-
-            self.wait_for_vsync();
-        }
-    }
-
-    fn wait_for_vsync(&self) {
-        let mut fds = FdSet::new();
-        fds.insert(self.card.as_raw_fd());
-
-        loop {
-            if let Ok(nfds) = select(None, Some(&mut fds), None, None, None) {
-                if nfds > 0 {
-                    // if we get here, it's safe to extract events
-                    // from the fd.
-                    if let Ok(events) = crtc::receive_events(&self.card) {
-                        for event in events {
-                            // If we receive a PageFlip, it's safe to
-                            // queue the next one.
-                            match event {
-                                crtc::Event::PageFlip(_) => return,
-                                _ => ()
-                            }
+    loop {
+        if let Ok(nfds) = select(None, Some(&mut fds), None, None, None) {
+            if nfds > 0 {
+                // if we get here, it's safe to extract events
+                // from the fd.
+                if let Ok(events) = crtc::receive_events(card) {
+                    for event in events {
+                        // If we receive a PageFlip, it's safe to
+                        // queue the next one.
+                        match event {
+                            crtc::Event::PageFlip(_) => return,
+                            _ => ()
                         }
                     }
                 }
             }
         }
     }
+}
 
-    fn create_fb(&self, mode: Mode) -> (
-        framebuffer::Info,
-        dumbbuffer::DumbBuffer
-    ) {
-        // Select the pixel format
-        let fmt = PixelFormat::XRGB8888;
-        //let fmt = PixelFormat::RGBA8888;
-        //let fmt = PixelFormat::ARGB4444;
-        let resolution = mode.size();
 
-        // Create a DB
-        let mut db = dumbbuffer::DumbBuffer::create_from_device(
-            &self.card,
-            (resolution.0 as u32, resolution.1 as u32),
-            fmt
-        ).expect("Could not create dumb buffer");
+fn dumb_buffer(card: &Card, mode: &Mode) -> DumbBuffer {
+    let fmt = PixelFormat::XRGB8888;
+    let sz = mode.size();
+    let sz = (sz.0 as u32, sz.1 as u32);
 
-        let fb = framebuffer::create(&self.card, &db)
-            .expect("Could not create FB");
+    DumbBuffer::create_from_device(card, sz, fmt)
+        .expect("Could not create dumb buffer")
+}
 
-        (fb, db)
+struct Page<'a> {
+    fb_priv: FrameBuffer,
+    pub fb: FrameBufferHandle,
+    pub dm: DumbMapping<'a>,
+}
+
+impl<'a> Page<'a> {
+    pub fn new(card: &Card, db: &'a mut DumbBuffer) -> Page<'a> {
+        let fb = createfb(card, db).expect("!");
+        Page {
+            fb_priv: fb,
+            fb: fb.handle(),
+            dm: db.map(card).expect("!")
+        }
     }
 }
 
 
-pub fn render(value: u8, buffer: &mut [u8]) {
+// Run forever, redrawing the screen as fast as possible, using
+// double-buffering.
+fn render(card: Card) {
+    // Set up the connection to the GPU ....
+    let res = card
+        .resource_handles()
+        .expect("Could not load normal resource ids.");
+
+    let connectors: Vec<connector::Info> =
+        load_information(&card, res.connectors());
+
+    let connector = connectors
+        .iter()
+        .filter(|c| c.connection_state() == connector::State::Connected)
+        .next()
+        .expect("No display is connected.");
+
+    // Get the first (usually best) mode
+    let &mode = connector
+        .modes()
+        .iter()
+        .next()
+        .expect("no mode!");
+
+    // Get the crtc
+    let crtcs: Vec<crtc::Info> = load_information(&card, res.crtcs());
+    let crtc = crtcs
+        .iter()
+        .next()
+        .expect("Couldn't get crtc");
+
+    // .... To here
+
+    // Cache some values
+    let index = [0, 1];
+    let mut front = dumb_buffer(&card, &mode);
+    let mut back = dumb_buffer(&card, &mode);
+
+    let mut pages = [Page::new(&card, &mut front), Page::new(&card, &mut back)];
+    let clock = Clock::new();
+    let pf_flags = [crtc::PageFlipFlags::PageFlipEvent];
+    let con_hdl = [connector.handle()];
+    let orig = (0, 0);
+
+    // Set initial mode on the crtc.
+    crtc::set(&card, crtc.handle(), pages[0].fb, &con_hdl, orig, Some(mode))
+        .expect("Could not set CRTC");
+
+    for &index in index.iter().cycle() {
+        let page = &mut pages[index];
+        let fb = page.fb;
+        let buf = page.dm.as_mut();
+        let val = ((clock.seconds().sin() * 127.0) + 128.0) as u8;
+
+        // Fill the buffers with values.
+        draw(val, buf.as_mut());
+
+        // Request a page flip. The actual page flip will happen
+        // some time later. We cannot call this again until we
+        // have received the page flip event, but the page flip is
+        // handled for us.
+        crtc::page_flip(&card, crtc.handle(), fb, &pf_flags)
+            .expect("Could not set CRTC");
+
+        await_vblank(&card);
+    }
+}
+
+
+pub fn draw(value: u8, buffer: &mut [u8]) {
     for b in buffer {
         *b = value;
     }
@@ -206,8 +195,5 @@ pub fn render(value: u8, buffer: &mut [u8]) {
 
 
 pub fn drm_magic() -> () {
-    let card = Card::open("/dev/dri/card0");
-    let display = Display::new(card);
-
-    display.render_loop();
+    render(Card::open("/dev/dri/card0"));
 }
