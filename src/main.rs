@@ -2,14 +2,13 @@ use std::collections::HashMap;
 
 use udashboard::v1;
 use udashboard::config::{Style, Pattern, Color};
-use udashboard::render::PNGRenderer;
+use udashboard::render::CairoRenderer;
 use udashboard::data::State;
-use udashboard::output::drm_magic;
+use udashboard::output;
 
 fn main() {
     let config = v1::load("config.ron".to_string()).unwrap();
-    let renderer = PNGRenderer::new(
-        "dashbard.png".to_string(),
+    let renderer = CairoRenderer::new(
         config.screen,
         config.pages,
         Style {
@@ -22,14 +21,5 @@ fn main() {
     let mut values = HashMap::new();
     values.insert("RPM".to_string(), 1500.0 as f32);
 
-    let state = State {
-        values: values,
-        states: HashMap::new(),
-        time: 0
-    };
-
-    renderer.render(&state);
-    // start update loop.
-
-    drm_magic();
+    output::run(renderer);
 }

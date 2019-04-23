@@ -1,6 +1,9 @@
 use crate::clock::Clock;
+use crate::render::CairoRenderer;
+use crate::data::State;
 
 use std::{
+    collections::HashMap,
     format,
     fs::{OpenOptions, File},
     os::unix::io::{
@@ -151,7 +154,7 @@ impl Page {
 
 // Run forever, redrawing the screen as fast as possible, using
 // double-buffering.
-fn render(card: Card) {
+fn render(card: Card, renderer: CairoRenderer) {
     // Set up the connection to the GPU ....
     let res = card
         .resource_handles()
@@ -191,6 +194,14 @@ fn render(card: Card) {
     let con_hdl = [connector.handle()];
     let orig = (0, 0);
 
+    let mut state = State {
+        values: HashMap::new(),
+        states: HashMap::new(),
+        time: 0
+    };
+
+    state.values.insert("RPM".to_string(), 1500.0 as f32);
+
     // Set initial mode on the crtc.
     crtc::set(&card, crtc.handle(), pages[1].fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
@@ -200,7 +211,7 @@ fn render(card: Card) {
         let page = &mut pages[i];
 
         // Fill the buffers with values.
-        page.render(&card, |cr| draw(val, cr));
+        page.render(&card, |cr| renderer.render(&cr, &state));
 
         // Request a page flip. The actual page flip will happen
         // some time later. We cannot call this again until we
@@ -214,13 +225,6 @@ fn render(card: Card) {
 }
 
 
-pub fn draw(value: f64, cr: &Context) {
-    cr.set_source_rgb(value, 0.0, 0.0);
-    cr.rectangle(0.0, 0.0, 1366.0 / 2.0, 768.0 / 2.0);
-    cr.fill();
-}
-
-
-pub fn drm_magic() -> () {
-    render(Card::open("/dev/dri/card0"));
+pub fn run(renderer: CairoRenderer) -> () {
+    render(Card::open("/dev/dri/card0"), renderer);
 }
