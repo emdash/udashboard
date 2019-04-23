@@ -8,6 +8,7 @@ version = "0.1.0"
 ron = "*"
 drm = "*"
 nix = "0.11.0"
+cairo-sys-rs = "0.8.0"
 
 [dependencies.cairo-rs]
 default-features = false

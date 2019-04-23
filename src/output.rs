@@ -9,6 +9,9 @@ use std::{
     }
 };
 
+use cairo::{Context, Format, ImageSurface};
+use cairo_sys as ffi;
+
 use drm::{
     Device as BasicDevice,
     buffer::PixelFormat,
@@ -19,9 +22,8 @@ use drm::{
         ResourceInfo,
         connector,
         crtc,
-        dumbbuffer::{DumbBuffer, DumbMapping},
+        dumbbuffer::{DumbBuffer},
         framebuffer::{
-            Info as FrameBuffer,
             Handle as FrameBufferHandle,
             create as createfb
         }
@@ -29,6 +31,13 @@ use drm::{
 };
 
 use nix::sys::select::{FdSet, select};
+
+
+// Mode reports size as (u16, u16), but every place we use it wants
+// (u32, u32) which is _maddening_
+fn widen<T: Into<U>, U>(a: (T, T)) -> (U, U) {
+    (a.0.into(), a.1.into())
+}
 
 
 // needed because the api is generic to the point of breaking type inference.
@@ -91,28 +100,46 @@ fn await_vblank(card: &Card) {
 }
 
 
-fn dumb_buffer(card: &Card, mode: &Mode) -> DumbBuffer {
-    let fmt = PixelFormat::XRGB8888;
-    let sz = mode.size();
-    let sz = (sz.0 as u32, sz.1 as u32);
-
-    DumbBuffer::create_from_device(card, sz, fmt)
-        .expect("Could not create dumb buffer")
-}
-
-struct Page<'a> {
-    fb_priv: FrameBuffer,
+struct Page {
     pub fb: FrameBufferHandle,
-    pub dm: DumbMapping<'a>,
+    pub db: DumbBuffer,
+    sz: (u16, u16)
 }
 
-impl<'a> Page<'a> {
-    pub fn new(card: &Card, db: &'a mut DumbBuffer) -> Page<'a> {
-        let fb = createfb(card, db).expect("!");
-        Page {
-            fb_priv: fb,
-            fb: fb.handle(),
-            dm: db.map(card).expect("!")
+impl Page {
+    pub fn new(card: &Card, mode: &Mode) -> Page {
+        // This is the only format that seems to work...
+        let fmt = PixelFormat::RGB565;
+        let sz = mode.size();
+        let db = DumbBuffer::create_from_device(card, widen(sz), fmt).expect("!");
+        let fb = createfb(card, &db).expect("!");
+
+        println!("{:?}", fb);
+
+        let fb = fb.handle();
+
+        Page {fb, db, sz}
+    }
+
+    pub fn render<T>(&mut self, card: &Card, mut func: T) where T: FnMut(&Context) {
+        let (w, h): (i32, i32) = widen(self.sz);
+        let mut dm = self.db.map(card).expect("!");
+
+
+        // XXX: @u$)(@#@ ImageSurface::create_for_data() requires
+        // 'static!!?!? WHAT THE HELL AM I SUPPOSED TO DO HERE?
+        let ptr = dm.as_mut().as_mut_ptr();
+
+        unsafe {
+             let surface = ImageSurface::from_raw_full(
+                ffi::cairo_image_surface_create_for_data(
+                    ptr,
+                    Format::Rgb16_565.into(),
+                    w, h,
+                    w * 2
+                )
+            ).expect("!");
+            func(&Context::new(&surface));
         }
     }
 }
@@ -150,36 +177,32 @@ fn render(card: Card) {
         .expect("Couldn't get crtc");
 
     // .... To here
+    // Create a Page struct for reach buffer.
+    let mut pages: Vec<Page> = (0..2)
+        .map(|_| Page::new(&card, &mode))
+        .collect();
 
-    // Cache some values
-    let index = [0, 1];
-    let mut front = dumb_buffer(&card, &mode);
-    let mut back = dumb_buffer(&card, &mode);
-
-    let mut pages = [Page::new(&card, &mut front), Page::new(&card, &mut back)];
     let clock = Clock::new();
     let pf_flags = [crtc::PageFlipFlags::PageFlipEvent];
     let con_hdl = [connector.handle()];
     let orig = (0, 0);
 
     // Set initial mode on the crtc.
-    crtc::set(&card, crtc.handle(), pages[0].fb, &con_hdl, orig, Some(mode))
+    crtc::set(&card, crtc.handle(), pages[1].fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
 
-    for &index in index.iter().cycle() {
-        let page = &mut pages[index];
-        let fb = page.fb;
-        let buf = page.dm.as_mut();
-        let val = ((clock.seconds().sin() * 127.0) + 128.0) as u8;
+    for i in (0..1).cycle() {
+        let val = clock.seconds().sin() + 1.0;
+        let page = &mut pages[i];
 
         // Fill the buffers with values.
-        draw(val, buf.as_mut());
+        page.render(&card, |cr| draw(val, cr));
 
         // Request a page flip. The actual page flip will happen
         // some time later. We cannot call this again until we
         // have received the page flip event, but the page flip is
         // handled for us.
-        crtc::page_flip(&card, crtc.handle(), fb, &pf_flags)
+        crtc::page_flip(&card, crtc.handle(), page.fb, &pf_flags)
             .expect("Could not set CRTC");
 
         await_vblank(&card);
@@ -187,10 +210,10 @@ fn render(card: Card) {
 }
 
 
-pub fn draw(value: u8, buffer: &mut [u8]) {
-    for b in buffer {
-        *b = value;
-    }
+pub fn draw(value: f64, cr: &Context) {
+    cr.set_source_rgb(value, 0.0, 0.0);
+    cr.rectangle(0.0, 0.0, 1366.0 / 2.0, 768.0 / 2.0);
+    cr.fill();
 }
 
 
