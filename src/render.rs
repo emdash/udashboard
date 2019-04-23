@@ -159,9 +159,9 @@ impl CairoRenderer {
 
                 cr.new_path();
                 cr.rotate(angle);
-                cr.move_to(-5.0, 0.0);
+                cr.move_to(-10.0, 0.0);
                 cr.rel_line_to(0.0, -radius);
-                cr.line_to(5.0, 0.0);
+                cr.line_to(10.0, 0.0);
                 cr.close_path();
                 cr.fill();
             }
