@@ -6,9 +6,13 @@ version = "0.1.0"
 
 [dependencies]
 ron = "*"
-drm = "*"
 nix = "0.11.0"
 cairo-sys-rs = "0.8.0"
+
+[dependencies.drm]
+git = "https://github.com/emdash/drm-rs"
+branch = "armhf"
+features = ["use_bindgen"]
 
 [dependencies.cairo-rs]
 default-features = false
