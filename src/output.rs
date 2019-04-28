@@ -3,6 +3,7 @@ use crate::render::CairoRenderer;
 use crate::data::State;
 
 use std::{
+    borrow::Borrow,
     collections::HashMap,
     format,
     fs::{OpenOptions, File},
@@ -105,7 +106,7 @@ fn await_vblank(card: &Card) {
 
 struct Page {
     pub fb: FrameBufferHandle,
-    pub db: DumbBuffer,
+    pub db: Box<DumbBuffer>
 }
 
 impl Page {
@@ -113,36 +114,9 @@ impl Page {
         // This is the only format that seems to work...
         let fmt = PixelFormat::RGB565;
         let sz = mode.size();
-        let db = DumbBuffer::create_from_device(card, widen(sz), fmt).expect("!");
-        let fb = createfb(card, &db).expect("!").handle();
+        let db = Box::new(DumbBuffer::create_from_device(card, widen(sz), fmt).expect("!"));
+        let fb = createfb(card, &(*db)).expect("!").handle();
         Page {fb, db}
-    }
-
-    pub fn render<T>(&mut self, card: &Card, mut func: T)
-        where T: FnMut(&Context)
-    {
-        let (w, h) = self.db.size();
-        let pitch = self.db.pitch();
-        let mut dm = self.db.map(card).expect("!");
-
-        // XXX: @u$)(@#@ ImageSurface::create_for_data() requires
-        // 'static!!?!? So we have to use unsafe even though we can
-        // statically prove that dm lives longer than the context.
-        let ptr = dm.as_mut().as_mut_ptr();
-
-        func(& unsafe {
-             let surface = ImageSurface::from_raw_full(
-                ffi::cairo_image_surface_create_for_data(
-                    ptr,
-                    Format::Rgb16_565.into(),
-                    w as i32,
-                    h as i32,
-                    pitch as i32
-                )
-
-            ).expect("!");
-            Context::new(&surface)
-        })
     }
 }
 
@@ -180,10 +154,46 @@ fn render(card: Card, renderer: CairoRenderer) {
 
     // .... To here
     // Create a Page struct for reach buffer.
-    let mut pages: Vec<Page> = (0..2)
-        .map(|_| Page::new(&card, &mode))
-        .collect();
+    let mut p1 = Page::new(&card, &mode);
+    let mut p2 = Page::new(&card, &mode);
+    let (w, h) = p1.db.size();
+    let pitch = p1.db.pitch();
 
+    let mut dm1 = p1.db.map(&card).expect("!");
+    let mut dm2 = p2.db.map(&card).expect("!");
+
+    // XXX: @u$)(@#@ ImageSurface::create_for_data() requires
+    // 'static!!?!? So we have to use unsafe even though we can
+    // statically prove that dm lives longer than the context.
+    let ptr1 = dm1.as_mut().as_mut_ptr();
+    let ptr2 = dm2.as_mut().as_mut_ptr();
+
+    let c1 = unsafe {
+        let surface = ImageSurface::from_raw_full(
+            ffi::cairo_image_surface_create_for_data(
+                ptr1,
+                Format::Rgb16_565.into(),
+                w as i32,
+                h as i32,
+                pitch as i32
+            )
+        ).expect("!");
+        Context::new(&surface)
+    };
+    let c2 = unsafe {
+        let surface = ImageSurface::from_raw_full(
+            ffi::cairo_image_surface_create_for_data(
+                ptr2,
+                Format::Rgb16_565.into(),
+                w as i32,
+                h as i32,
+                pitch as i32
+            )
+        ).expect("!");
+        Context::new(&surface)
+    };
+
+    let cr = [(p1.fb, c1), (p2.fb, c2)];
     let clock = Clock::new();
     let pf_flags = [crtc::PageFlipFlags::PageFlipEvent];
     let con_hdl = [connector.handle()];
@@ -198,22 +208,21 @@ fn render(card: Card, renderer: CairoRenderer) {
     state.values.insert("RPM".to_string(), 1500.0 as f32);
 
     // Set initial mode on the crtc.
-    crtc::set(&card, crtc.handle(), pages[1].fb, &con_hdl, orig, Some(mode))
+    crtc::set(&card, crtc.handle(), p1.fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
 
-    for i in (0..pages.len()).cycle() {
+    for (fb, cr) in cr.iter().cycle() {
         let val = (0.5 * ((clock.seconds() * 2.0).sin() + 1.0)) as f32;
         state.values.insert("RPM".to_string(), 1500.0 * val);
-        let page = &mut pages[i];
 
         // Fill the buffers with values.
-        page.render(&card, |cr| renderer.render(&cr, &state));
+        renderer.render(cr, &state);
 
         // Request a page flip. The actual page flip will happen
         // some time later. We cannot call this again until we
         // have received the page flip event, but the page flip is
         // handled for us.
-        crtc::page_flip(&card, crtc.handle(), page.fb, &pf_flags)
+        crtc::page_flip(&card, crtc.handle(), *fb, &pf_flags)
             .expect("Could not set CRTC");
 
         await_vblank(&card);
