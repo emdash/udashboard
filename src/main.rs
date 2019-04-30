@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use udashboard::v1;
 use udashboard::config::{Style, Pattern, Color};
 use udashboard::render::CairoRenderer;
-use udashboard::data::State;
 use udashboard::output;
 
 fn main() {

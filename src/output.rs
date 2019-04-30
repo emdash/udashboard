@@ -3,7 +3,6 @@ use crate::render::CairoRenderer;
 use crate::data::State;
 
 use std::{
-    borrow::Borrow,
     collections::HashMap,
     format,
     fs::{OpenOptions, File},
