@@ -226,6 +226,7 @@ impl Layout {
 #[derive(Deserialize, Debug)]
 struct Gauge {
     name: String,
+    label: Option<String>,
     kind: GaugeType,
     channel: String,
     layout: Layout,
@@ -240,6 +241,7 @@ impl Gauge {
     ) -> config::Gauge {
         let Gauge {
             name,
+            label,
             kind,
             channel,
             layout,
@@ -247,7 +249,8 @@ impl Gauge {
         } = self;
 
         config::Gauge {
-            label: name,
+            name: name,
+            label: label,
             kind: kind,
             channel: channel,
             bounds: layout.to_config(screen),

@@ -150,7 +150,10 @@ impl CairoRenderer {
         self.set_pattern(cr, &self.default_style.background);
         cr.set_font_size(14.0);
         cr.move_to(0.0, -radius * 0.15);
-        self.center_text(cr, &gauge.label);
+
+        if let Some(label) = &gauge.label {
+            self.center_text(cr, label);
+        }
 
         let (major, minor) = match &scale.2 {
             Divisions::None => (None, None),

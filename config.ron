@@ -26,7 +26,8 @@ V1(
      When("ECT",  GreaterThan(215.0),    Alarm("ECT_HIGH"))
   ], gauges: [
       Gauge(
-        name: "RPM x 100",
+        name: "Tach",
+        label: Some("RPM x 100"),
         kind: Dial(Scale(
           0.0,
           6500.0,
@@ -41,6 +42,7 @@ V1(
         styles: {Alarm("OVERRUN"): "DANGER"}
       ), Gauge(
         name: "Coolant",
+        label: Some("ECT"),
         kind: Dial(Scale(0, 300, None, Outline)),
         channel: "ECT",
         layout: Grid(GridSize(3, 5), GridPosition(2, 0)),
@@ -50,14 +52,15 @@ V1(
           Alarm("ECT_HIGH"): "DANGER"
         },
       ), Gauge(
-        name: "Oil Pressure",
+        name: "OIL_PRESSURE",
+        label: Some("Oil Pressure"),
         kind: Dial(Scale(0, 600, None, Outline)),
         channel: "ECT",
         layout: Grid(GridSize(3, 5), GridPosition(2, 4)),
         styles: {Alarm("OIL_PRESSURE_LOW"): "DANGER"}
       )
   ], pages: [
-    Page(["Tach", "Coolant", "Oil Pressure"]),
+    Page(["Tach", "Coolant", "OIL_PRESSURE"]),
   ], styles: {
     Default: Style(
       background: Solid(Black),

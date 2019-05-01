@@ -47,7 +47,7 @@ impl Scale {
     }
 
     pub fn to_angle(&self, val: f32) -> f32 {
-        (1.5 * PI * (self.to_percent(val) + 0.5))
+        (1.25 * PI * (self.to_percent(val) - 0.5))
     }
 }
 
@@ -144,7 +144,8 @@ pub type StyleSet = HashMap<State, Style>;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Gauge {
-    pub label: String,
+    pub name: String,
+    pub label: Option<String>,
     pub kind: GaugeType,
     pub channel: String,
     pub bounds: Bounds,
