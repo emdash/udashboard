@@ -111,11 +111,8 @@ vector graphics on the GPU, but these techniques are a little too bleeding-edge 
  * Performance
  * Safety
 
-No other language community values a no-compromise attitude towards
-*both* performance *and* safety. This software needs to work reliably,
-and C and C++ just give you too many ways to shoot yourself in the foot. 
-The analysis that Rust's type system affords *out of the box* is far above what
-third-party tools can do for C and C++.
+This software needs to be stasble, and C and C++ force you to do things that are fundamentally unsafe. 
+The analysis that Rust's type system affords *out of the box* is phenominal coming from C and C++.
 
 Dependency management is another up-side. Rust's `cargo` is on par with `npm`, `maven`,
 more friendly than `sbt`, and superior to `pip`. C++ *might* get modules in 2020.
@@ -125,27 +122,10 @@ The downsides (nothing is perfect):
  - The compiler is stupid and pedantic and will make you very angry. That's the whole point.
  - Library support (as opposed to the package manager itself) is still patchy (though it's rapidly improving).
  - Stable Rust is still too bleeding-edge for most distributions, and even for meta-distros like buildroot.
- 
- Frankly I'm prepared to live with that, when you look at the alternatives:
- 
-  - C:
-    - No standardization around *anything* but the core language, and that leaves you wanting more.
-    - Fundamentally impossible to avoid unsafe programming practices, like casting through `void *`.
-    - Pick your poison: 
-      - Write safe code, but repeat yourself constantly and pay for the code duplication.
-      - Write expressive code. DRY, but rely on dangerous / inefficient mechanisms like varargs.
-      - Use macros to implement abstractions, and make everyone want to kill you.
-  - C++:
-    - Blazing fast, no airbags.
-    - Razor sharp, and *will* cut you. 
-    - Lots of libraries, no official way to install them.
-    - Lots of build systems: choose one of a hundred, or write your own!
-    - Might have in 2020 what rust has today.
-  - D: I dunno, maybe. IMHO, D has really struggled to distinguish itself from C++.
-
+  
 # Why? Just... Why?
 
 I have a couple of track-only vehicles (race cars). Race cars don't come with dashboards,
 you have to install one. I have used or investigated a wide range of electronic dashboards,
-all proprietary, and somewhat limiting. But, tinkering is a big part of racing. Sometimes
-you gotta do things your own way because you just can't stand not to.
+all proprietary. Tinkering is a big part of racing. Sometimes you gotta do things your own way
+because you can't stand not to.
