@@ -141,8 +141,7 @@ The downsides (nothing is perfect):
     - Lots of libraries, no official way to install them.
     - Lots of build systems: choose one of a hundred, or write your own!
     - Might have in 2020 what rust has today.
-  - D: I dunno, maybe. IMHO, D struggles to distinguish itself from C++. It shies away from exactly the features that
-      make C++ interesting, without really adding anything interesting to make it seem worth it.
+  - D: I dunno, maybe. IMHO, D has really struggled to distinguish itself from C++.
 
 # Why? Just... Why?
 
