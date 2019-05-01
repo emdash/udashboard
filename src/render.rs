@@ -180,9 +180,9 @@ impl CairoRenderer {
         if let Some(ticks) = major {
             cr.save();
             cr.set_line_width(10.0);
-            for tick in ticks {
+            for (_, value) in ticks {
                 cr.save();
-                cr.rotate(scale.to_angle(*tick).into());
+                cr.rotate(scale.to_angle(*value).into());
                 cr.move_to(0.0, -radius * 0.95);
                 cr.line_to(0.0, -radius * 0.70);
                 cr.restore();
@@ -191,11 +191,11 @@ impl CairoRenderer {
             cr.stroke();
 
             cr.set_font_size(24.0);
-            for tick in ticks {
+            for (label, value) in ticks {
                 cr.save();
-                cr.rotate(scale.to_angle(*tick).into());
+                cr.rotate(scale.to_angle(*value).into());
                 cr.line_to(0.0, -radius * 0.50);
-                self.center_text(cr, &format!("{:.0}", *tick / 100.0));
+                self.center_text(cr, label);
                 cr.restore();
             }
             cr.restore();

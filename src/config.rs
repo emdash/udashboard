@@ -17,7 +17,7 @@ pub struct Screen {
 pub enum Divisions {
     None,
     Uniform(Vec<f32>),
-    MajorMinor(Vec<f32>, Vec<f32>),
+    MajorMinor(Vec<(String, f32)>, Vec<f32>),
 }
 
 #[derive(Deserialize, Debug, Clone)]
