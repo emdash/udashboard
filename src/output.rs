@@ -3,6 +3,7 @@ use crate::render::CairoRenderer;
 use crate::data::State;
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     format,
     fs::{OpenOptions, File},
@@ -13,7 +14,6 @@ use std::{
 };
 
 use cairo::{Context, Format, ImageSurface};
-use cairo_sys as ffi;
 
 use drm::{
     Device as BasicDevice,
@@ -34,6 +34,8 @@ use drm::{
 };
 
 use nix::sys::select::{FdSet, select};
+
+const PFFLAGS: [crtc::PageFlipFlags; 1] = [crtc::PageFlipFlags::PageFlipEvent];
 
 
 // Mode reports size as (u16, u16), but every place we use it wants
@@ -83,19 +85,20 @@ fn await_vblank(card: &Card) {
     fds.insert(card.as_raw_fd());
 
     loop {
-        if let Ok(nfds) = select(None, Some(&mut fds), None, None, None) {
-            if nfds > 0 {
-                // if we get here, it's safe to extract events
-                // from the fd.
-                if let Ok(events) = crtc::receive_events(card) {
-                    for event in events {
-                        // If we receive a PageFlip, it's safe to
-                        // queue the next one.
-                        match event {
-                            crtc::Event::PageFlip(_) => return,
-                            _ => ()
-                        }
-                    }
+        let nfds = select(None, Some(&mut fds), None, None, None)
+            .expect("select failed");
+        if nfds > 0 {
+            // if we get here, it's safe to extract events
+            // from the fd.
+            let events = crtc::receive_events(card)
+                .expect("couldn't receive events.");
+
+            for event in events {
+                // If we receive a PageFlip, it's safe to
+                // queue the next one.
+                match event {
+                    crtc::Event::PageFlip(_) => return,
+                    _ => ()
                 }
             }
         }
@@ -105,7 +108,7 @@ fn await_vblank(card: &Card) {
 
 struct Page {
     pub fb: FrameBufferHandle,
-    pub db: Box<DumbBuffer>
+    pub db: RefCell<DumbBuffer>
 }
 
 impl Page {
@@ -113,9 +116,90 @@ impl Page {
         // This is the only format that seems to work...
         let fmt = PixelFormat::RGB565;
         let sz = mode.size();
-        let db = Box::new(DumbBuffer::create_from_device(card, widen(sz), fmt).expect("!"));
-        let fb = createfb(card, &(*db)).expect("!").handle();
+        let mut db = RefCell::new(
+            DumbBuffer::create_from_device(
+                card,
+                widen(sz),
+                fmt
+            ).expect("!")
+        );
+
+        let fb = createfb(card, db.get_mut()).expect("!").handle();
         Page {fb, db}
+    }
+
+    fn render_priv(
+        &self,
+        surface: &ImageSurface,
+        state: &State,
+        renderer: &CairoRenderer
+    ) {
+        let cr = Context::new(&surface);
+        renderer.render(&cr, &state);
+    }
+
+    pub fn render(
+        &self,
+        card: &Card,
+        renderer: &CairoRenderer,
+        crtc: crtc::Handle,
+        state: &State
+    ) {
+        // I tried so hard to optimize this code to re-use the
+        // dumbbuffer, mapping, and cairo context. It worked fine on
+        // my laptop. But when I got the BBB, it brought the whole
+        // system down repeatedly. I strongly suspect that cairo's
+        // rasterizer commits access violations, and while this is
+        // normally harmless, it's death when you're dealing with
+        // shared memory and frame buffers. In the end, the extra work
+        // done here is negligible compared to the cost of rendering.
+        // And, with Rust, the path of least resistance is to hide
+        // nasty stateful stuff on the call stack.
+        let mut db = self.db.borrow_mut();
+        let (w, h) = db.size();
+        let mut dm = db.map(card).expect("couldn't map buffer");
+        let mut s = ImageSurface::create(
+            Format::Rgb16_565,
+            w as i32,
+            h as i32
+        ).expect("Couldn't create surface");
+
+        self.render_priv(&s, state, renderer);
+
+        dm.as_mut().copy_from_slice(
+            s.get_data().expect("couldn't borrow image data").as_mut()
+        );
+
+        crtc::page_flip(card, crtc, self.fb, &PFFLAGS)
+            .expect("Could not set CRTC");
+
+        // can't start drawing until p1 is showing
+        await_vblank(&card);
+    }
+}
+
+
+// Loop forever rendering things al the things.
+fn render_loop(
+    card: Card,
+    crtc: crtc::Handle,
+    renderer: CairoRenderer,
+    pages: [Page; 2]
+) {
+    let clock = Clock::new();
+
+    let mut state = State {
+        values: HashMap::new(),
+        states: HashMap::new(),
+        time: 0
+    };
+
+    state.values.insert("RPM".to_string(), 1500.0 as f32);
+
+    for page in pages.iter().cycle() {
+        let val = (0.5 * ((clock.seconds() * 2.0).sin() + 1.0)) as f32;
+        state.values.insert("RPM".to_string(), 1500.0 * val);
+        page.render(&card, &renderer, crtc, &state);
     }
 }
 
@@ -153,82 +237,20 @@ fn render(card: Card, renderer: CairoRenderer) {
 
     // .... To here
     // Create a Page struct for reach buffer.
-    let mut p1 = Page::new(&card, &mode);
-    let mut p2 = Page::new(&card, &mode);
-    let (w, h) = p1.db.size();
-    let pitch = p1.db.pitch();
-
-    let mut dm1 = p1.db.map(&card).expect("!");
-    let mut dm2 = p2.db.map(&card).expect("!");
-
-    // XXX: @u$)(@#@ ImageSurface::create_for_data() requires
-    // 'static!!?!? So we have to use unsafe even though we can
-    // statically prove that dm lives longer than the context.
-    let ptr1 = dm1.as_mut().as_mut_ptr();
-    let ptr2 = dm2.as_mut().as_mut_ptr();
-
-    let c1 = unsafe {
-        let surface = ImageSurface::from_raw_full(
-            ffi::cairo_image_surface_create_for_data(
-                ptr1,
-                Format::Rgb16_565.into(),
-                w as i32,
-                h as i32,
-                pitch as i32
-            )
-        ).expect("!");
-        Context::new(&surface)
-    };
-    let c2 = unsafe {
-        let surface = ImageSurface::from_raw_full(
-            ffi::cairo_image_surface_create_for_data(
-                ptr2,
-                Format::Rgb16_565.into(),
-                w as i32,
-                h as i32,
-                pitch as i32
-            )
-        ).expect("!");
-        Context::new(&surface)
-    };
-
-    let cr = [(p1.fb, c1), (p2.fb, c2)];
-    let clock = Clock::new();
-    let pf_flags = [crtc::PageFlipFlags::PageFlipEvent];
+    let pages = [Page::new(&card, &mode), Page::new(&card, &mode)];
     let con_hdl = [connector.handle()];
     let orig = (0, 0);
 
-    let mut state = State {
-        values: HashMap::new(),
-        states: HashMap::new(),
-        time: 0
-    };
-
-    state.values.insert("RPM".to_string(), 1500.0 as f32);
-
-    // Set initial mode on the crtc.
-    crtc::set(&card, crtc.handle(), p1.fb, &con_hdl, orig, Some(mode))
+    // Set initial mode on the crtc.  Set this to the back buffer,
+    // because we will start rendering into the front buffer.
+    crtc::set(&card, crtc.handle(), pages[0].fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
 
-    for (fb, cr) in cr.iter().cycle() {
-        let val = (0.5 * ((clock.seconds() * 2.0).sin() + 1.0)) as f32;
-        state.values.insert("RPM".to_string(), 1500.0 * val);
-
-        // Fill the buffers with values.
-        renderer.render(cr, &state);
-
-        // Request a page flip. The actual page flip will happen
-        // some time later. We cannot call this again until we
-        // have received the page flip event, but the page flip is
-        // handled for us.
-        crtc::page_flip(&card, crtc.handle(), *fb, &pf_flags)
-            .expect("Could not set CRTC");
-
-        await_vblank(&card);
-    }
+    render_loop(card, crtc.handle(), renderer, pages);
 }
 
 
+// Entry point for rendering.
 pub fn run(renderer: CairoRenderer) -> () {
-    render(Card::open("/dev/dri/card0"), renderer);
+    render(Card::open("/dev/dri/card1"), renderer);
 }
