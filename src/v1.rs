@@ -106,6 +106,24 @@ fn to_config_styleset(styles: StyleSet, defs: &StyleDefs) -> config::StyleSet {
     ret
 }
 
+#[derive(Deserialize, Debug, Clone)]
+enum Label {
+    None,
+    Plain(String),
+    Sized(String, f32),
+    Styled(String, f32, Color),
+}
+
+impl Label {
+    pub fn to_config(self) -> config::Label {
+        match self {
+            Label::None => config::Label::None,
+            Label::Plain(t) => config::Label::Plain(t),
+            Label::Sized(t, sz) => config::Label::Sized(t, sz),
+            Label::Styled(s, sz, c) => config::Label::Styled(s, sz, c.to_config())
+        }
+    }
+}
 
 #[derive(Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 enum StyleId {
@@ -226,7 +244,7 @@ impl Layout {
 #[derive(Deserialize, Debug)]
 struct Gauge {
     name: String,
-    label: Option<String>,
+    label: Label,
     kind: GaugeType,
     channel: String,
     layout: Layout,
@@ -250,7 +268,7 @@ impl Gauge {
 
         config::Gauge {
             name: name,
-            label: label,
+            label: label.to_config(),
             kind: kind,
             channel: channel,
             bounds: layout.to_config(screen),

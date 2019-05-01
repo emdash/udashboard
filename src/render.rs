@@ -14,6 +14,7 @@ use crate::config::{
     Gauge,
     GaugeStyle,
     GaugeType,
+    Label,
     // Lamp,
     Pattern,
     Scale,
@@ -103,7 +104,25 @@ impl CairoRenderer {
     fn center_text(&self, cr: &Context, text: &str) {
         let extents = cr.text_extents(text);
         cr.rel_move_to(-extents.width / 2.0, 0.0);
-        cr.show_text(text);
+        cr.show_text(text)
+    }
+
+    fn center_label(&self, cr: &Context, label: &Label) {
+        cr.save();
+        match label {
+            Label::None => (),
+            Label::Plain(text) => self.center_text(cr, text),
+            Label::Sized(text, sz) => {
+                cr.set_font_size(*sz as f64);
+                self.center_text(cr, text);
+            },
+            Label::Styled(text, sz, color) => {
+                cr.set_font_size(*sz as f64);
+                self.set_color(cr, color);
+                self.center_text(cr, text)
+            }
+        }
+        cr.restore();
     }
 
     fn render_gauge(
@@ -151,9 +170,7 @@ impl CairoRenderer {
         cr.set_font_size(14.0);
         cr.move_to(0.0, -radius * 0.15);
 
-        if let Some(label) = &gauge.label {
-            self.center_text(cr, label);
-        }
+        self.center_label(cr, &gauge.label);
 
         let (major, minor) = match &scale.2 {
             Divisions::None => (None, None),
@@ -195,7 +212,7 @@ impl CairoRenderer {
                 cr.save();
                 cr.rotate(scale.to_angle(*value).into());
                 cr.line_to(0.0, -radius * 0.50);
-                self.center_text(cr, label);
+                self.center_label(cr, label);
                 cr.restore();
             }
             cr.restore();

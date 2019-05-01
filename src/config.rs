@@ -7,6 +7,14 @@ use std::{
 
 use serde::{Deserialize};
 
+#[derive(Deserialize, Debug, Clone)]
+pub enum Label {
+    None,
+    Plain(String),
+    Sized(String, f32),
+    Styled(String, f32, Color),
+}
+
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Screen {
     pub width: f32,
@@ -17,7 +25,7 @@ pub struct Screen {
 pub enum Divisions {
     None,
     Uniform(Vec<f32>),
-    MajorMinor(Vec<(String, f32)>, Vec<f32>),
+    MajorMinor(Vec<(Label, f32)>, Vec<f32>),
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -145,7 +153,7 @@ pub type StyleSet = HashMap<State, Style>;
 #[derive(Deserialize, Debug, Clone)]
 pub struct Gauge {
     pub name: String,
-    pub label: Option<String>,
+    pub label: Label,
     pub kind: GaugeType,
     pub channel: String,
     pub bounds: Bounds,
