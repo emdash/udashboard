@@ -1,7 +1,10 @@
 // Defines file format for config file syntax version 1.
 
 use ron::de::from_reader;
-use std::{collections::HashMap, fs::File};
+use std::{
+    collections::HashMap,
+    fs::File
+};
 use serde::{Deserialize};
 
 use crate::config;

@@ -1,6 +1,10 @@
 // Internal Representation used by all rendering backends
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    f32::consts::PI,
+};
+
 use serde::{Deserialize};
 
 #[derive(Deserialize, Debug, Copy, Clone)]
@@ -9,11 +13,11 @@ pub struct Screen {
     pub height: f32
 }
 
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub enum Divisions {
     None,
-    Uniform(f32),
-    MajorMinor(f32, f32),
+    Uniform(Vec<f32>),
+    MajorMinor(Vec<f32>, Vec<f32>),
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -30,8 +34,22 @@ pub enum GaugeStyle {
     Dashed
 }
 
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Scale(pub f32, pub f32, pub Divisions, pub GaugeStyle);
+
+impl Scale {
+    pub fn range(&self) -> f32 {
+        self.1 - self.0
+    }
+
+    pub fn to_percent(&self, val: f32) -> f32 {
+        (val - self.0) / self.range()
+    }
+
+    pub fn to_angle(&self, val: f32) -> f32 {
+        (1.5 * PI * (self.to_percent(val) + 0.5))
+    }
+}
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Lamp {

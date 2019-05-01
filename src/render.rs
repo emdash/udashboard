@@ -3,14 +3,14 @@ use std::fs::File;
 use std::f64::consts::PI;
 
 use cairo;
-use cairo::{Context, Format, ImageSurface};
+use cairo::{Context, Format, ImageSurface, LineCap};
 
 use crate::config;
 use crate::config::{
     // Bounds,
     Color,
     // Config,
-    // Divisions,
+    Divisions,
     Gauge,
     GaugeStyle,
     GaugeType,
@@ -51,16 +51,14 @@ impl CairoRenderer {
         cr: &Context,
         state: &State
     ) {
-        cr.save();
-
         self.set_pattern(cr, &self.default_style.background);
         cr.paint();
 
         for gauge in &self.pages[self.page] {
+            cr.save();
             self.render_gauge(cr, &gauge, state);
+            cr.restore();
         }
-
-        cr.restore();
     }
 
     fn set_color(&self, cr: &Context, color: &Color) {
@@ -102,6 +100,12 @@ impl CairoRenderer {
         self.set_pattern(cr, &self.get_style(g, state).indicator)
     }
 
+    fn center_text(&self, cr: &Context, text: &str) {
+        let extents = cr.text_extents(text);
+        cr.rel_move_to(-extents.width / 2.0, 0.0);
+        cr.show_text(text);
+    }
+
     fn render_gauge(
         &self,
         cr: &Context,
@@ -109,13 +113,14 @@ impl CairoRenderer {
         state: &State
     ) {
         match &gauge.kind  {
-            GaugeType::Dial(opts) => self.dial(cr, gauge, opts, state),
-            GaugeType::VerticalBar(opts) => {println!("{:?}", opts)}
-            GaugeType::HorizontalBar(opts) => {println!("{:?}", opts)}
-            GaugeType::VerticalWedge(opts) => {println!("{:?}", opts)}
-            GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)}
-            GaugeType::IdiotLight(l) => {println!("{:?}", l)},
-            GaugeType::Text(f, s) => {println!("{:?}", s)}
+            GaugeType::Dial(opts)            =>
+                self.dial(cr, gauge, opts, state),
+            GaugeType::VerticalBar(opts)     => {println!("{:?}", opts)},
+            GaugeType::HorizontalBar(opts)   => {println!("{:?}", opts)},
+            GaugeType::VerticalWedge(opts)   => {println!("{:?}", opts)},
+            GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)},
+            GaugeType::IdiotLight(l)         => {println!("{:?}", l)},
+            GaugeType::Text(f, s)            => {println!("{:?}", s)}
         }
     }
 
@@ -126,15 +131,12 @@ impl CairoRenderer {
         scale: &Scale,
         state: &State
     ) {
-        cr.save();
-
         let bounds = gauge.bounds;
         let radius = (bounds.width.min(bounds.height) / 2.0) as f64;
         let cx = (bounds.x + bounds.width / 2.0) as f64;
         let cy = (bounds.y + bounds.height / 2.0) as f64;
 
         cr.translate(cx, cy);
-
         if self.set_foreground(cr, gauge, state) {
             cr.arc(0.0, 0.0, radius, 0.0, 2.0 * PI);
             match scale.3 {
@@ -147,18 +149,58 @@ impl CairoRenderer {
 
         self.set_pattern(cr, &self.default_style.background);
         cr.set_font_size(14.0);
+        cr.move_to(0.0, -radius * 0.15);
+        self.center_text(cr, &gauge.label);
 
-        let extents = cr.text_extents(&gauge.label);
-        cr.move_to(-extents.width / 2.0, radius * 0.15 + extents.height);
-        cr.show_text(&gauge.label);
+        let (major, minor) = match &scale.2 {
+            Divisions::None => (None, None),
+            Divisions::Uniform(min) => (None, Some(min)),
+            Divisions::MajorMinor(maj, min) => (Some(maj), Some(min))
+        };
+
+        cr.set_line_cap(LineCap::Round);
+
+        if let Some(ticks) = minor {
+            cr.save();
+            cr.set_line_width(5.0);
+            for tick in ticks {
+                cr.save();
+                cr.rotate(scale.to_angle(*tick).into());
+                cr.move_to(0.0, -radius * 0.95);
+                cr.line_to(0.0, -radius * 0.75);
+                cr.restore();
+            }
+            cr.stroke();
+            cr.restore();
+        }
+
+        if let Some(ticks) = major {
+            cr.save();
+            cr.set_line_width(10.0);
+            for tick in ticks {
+                cr.save();
+                cr.rotate(scale.to_angle(*tick).into());
+                cr.move_to(0.0, -radius * 0.95);
+                cr.line_to(0.0, -radius * 0.70);
+                cr.restore();
+            }
+
+            cr.stroke();
+
+            cr.set_font_size(24.0);
+            for tick in ticks {
+                cr.save();
+                cr.rotate(scale.to_angle(*tick).into());
+                cr.line_to(0.0, -radius * 0.50);
+                self.center_text(cr, &format!("{:.0}", *tick / 100.0));
+                cr.restore();
+            }
+            cr.restore();
+        }
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
-                let range = scale.0 - scale.1;
-                let angle = 2.0 * PI * (((value - scale.0) / range) as f64);
-
-                cr.new_path();
-                cr.rotate(angle);
+                cr.rotate(scale.to_angle(value).into());
                 cr.move_to(-10.0, 0.0);
                 cr.rel_line_to(0.0, -radius);
                 cr.line_to(10.0, 0.0);
@@ -169,8 +211,6 @@ impl CairoRenderer {
             cr.arc(0.0, 0.0, radius / 10.0, 0.0, 2.0 * PI);
             cr.fill();
         }
-
-        cr.restore();
     }
 }
 
