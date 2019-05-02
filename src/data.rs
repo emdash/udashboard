@@ -19,18 +19,18 @@
 // Data handling
 
 use std::collections::HashMap;
-use crate::config::Logic;
+use crate::config::{Logic, Float};
 
 
 pub struct State {
-    pub values: HashMap<String, f32>,
+    pub values: HashMap<String, Float>,
     pub states: HashMap<String, bool>,
     pub time: u64
 }
 
 
 pub struct Sample {
-    pub values: HashMap<String, f32>,
+    pub values: HashMap<String, Float>,
     pub time: u64
 }
 
@@ -58,7 +58,7 @@ impl State {
         }
     }
 
-    pub fn get(&self, key: &String) -> Option<f32> {
+    pub fn get(&self, key: &String) -> Option<Float> {
         if let Some(value) = self.values.get(key) {
             Some(*value)
         } else {

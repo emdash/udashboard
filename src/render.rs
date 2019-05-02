@@ -131,11 +131,11 @@ impl CairoRenderer {
             Label::None => (),
             Label::Plain(text) => self.center_text(cr, text),
             Label::Sized(text, sz) => {
-                cr.set_font_size(*sz as f64);
+                cr.set_font_size(*sz);
                 self.center_text(cr, text);
             },
             Label::Styled(text, sz, color) => {
-                cr.set_font_size(*sz as f64);
+                cr.set_font_size(*sz);
                 self.set_color(cr, color);
                 self.center_text(cr, text)
             }
@@ -169,9 +169,8 @@ impl CairoRenderer {
         state: &State
     ) {
         let bounds = gauge.bounds;
-        let radius = (bounds.width.min(bounds.height) / 2.0) as f64;
-        let cx = (bounds.x + bounds.width / 2.0) as f64;
-        let cy = (bounds.y + bounds.height / 2.0) as f64;
+        let (cx, cy) = bounds.center();
+        let radius = bounds.radius();
 
         cr.translate(cx, cy);
         if self.set_foreground(cr, gauge, state) {
@@ -187,7 +186,6 @@ impl CairoRenderer {
         self.set_pattern(cr, &self.default_style.background);
         cr.set_font_size(14.0);
         cr.move_to(0.0, -radius * 0.15);
-
         self.center_label(cr, &gauge.label);
 
         let (major, minor) = match &scale.2 {

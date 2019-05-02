@@ -134,6 +134,7 @@ impl Page {
         // This is the only format that seems to work...
         let fmt = PixelFormat::RGB565;
         let sz = mode.size();
+        println!("sz: {:?}", sz);
         let mut db = RefCell::new(
             DumbBuffer::create_from_device(
                 card,
@@ -173,8 +174,11 @@ impl Page {
         // done here is negligible compared to the cost of rendering.
         // And, with Rust, the path of least resistance is to hide
         // nasty stateful stuff on the call stack.
+
         let mut db = self.db.borrow_mut();
         let (w, h) = db.size();
+        println!("sz: {:?}", db.size());
+
         let mut dm = db.map(card).expect("couldn't map buffer");
         let mut s = ImageSurface::create(
             Format::Rgb16_565,
@@ -212,10 +216,10 @@ fn render_loop(
         time: 0
     };
 
-    state.values.insert("RPM".to_string(), 1500.0 as f32);
+    state.values.insert("RPM".to_string(), 1500.0);
 
     for page in pages.iter().cycle() {
-        let val = (0.5 * ((clock.seconds() * 2.0).sin() + 1.0)) as f32;
+        let val = 0.5 * ((clock.seconds() * 2.0).sin() + 1.0);
         state.values.insert("RPM".to_string(), 1500.0 * val);
         page.render(&card, &renderer, crtc, &state);
     }
@@ -270,5 +274,5 @@ fn render(card: Card, renderer: CairoRenderer) {
 
 // Entry point for rendering.
 pub fn run(renderer: CairoRenderer) -> () {
-    render(Card::open("/dev/dri/card1"), renderer);
+    render(Card::open("/dev/dri/card0"), renderer);
 }

@@ -20,30 +20,32 @@
 
 use std::{
     collections::HashMap,
-    f32::consts::PI,
+    f64::consts::PI,
 };
 
 use serde::{Deserialize};
+
+pub type Float = f64;
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Label {
     None,
     Plain(String),
-    Sized(String, f32),
-    Styled(String, f32, Color),
+    Sized(String, Float),
+    Styled(String, Float, Color),
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Screen {
-    pub width: f32,
-    pub height: f32
+    pub width: Float,
+    pub height: Float
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Divisions {
     None,
-    Uniform(Vec<f32>),
-    MajorMinor(Vec<(Label, f32)>, Vec<f32>),
+    Uniform(Vec<Float>),
+    MajorMinor(Vec<(Label, Float)>, Vec<Float>),
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -61,18 +63,18 @@ pub enum GaugeStyle {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct Scale(pub f32, pub f32, pub Divisions, pub GaugeStyle);
+pub struct Scale(pub Float, pub Float, pub Divisions, pub GaugeStyle);
 
 impl Scale {
-    pub fn range(&self) -> f32 {
+    pub fn range(&self) -> Float {
         self.1 - self.0
     }
 
-    pub fn to_percent(&self, val: f32) -> f32 {
+    pub fn to_percent(&self, val: Float) -> Float {
         (val - self.0) / self.range()
     }
 
-    pub fn to_angle(&self, val: f32) -> f32 {
+    pub fn to_angle(&self, val: Float) -> Float {
         (1.25 * PI * (self.to_percent(val) - 0.5))
     }
 }
@@ -112,10 +114,10 @@ pub enum State {
 pub enum Test {
     Always,
     Never,
-    LessThan(f32),
-    GreaterThan(f32),
-    Equal(f32),
-    Between(f32, f32)
+    LessThan(Float),
+    GreaterThan(Float),
+    Equal(Float),
+    Between(Float, Float)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -125,20 +127,39 @@ pub type Logic = Vec<When>;
 
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Point {
-    pub x: f32,
-    pub y: f32
+    pub x: Float,
+    pub y: Float
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Bounds {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32
+    pub x: Float,
+    pub y: Float,
+    pub width: Float,
+    pub height: Float
+}
+
+impl Bounds {
+    pub fn center(&self) -> (Float, Float) {
+        ((self.x + self.width * 0.5), (self.y + self.height * 0.5))
+    }
+
+    pub fn radius(&self) -> Float {
+        self.width.min(self.height) * 0.5
+    }
+
+    pub fn inset(&self, pixels: Float) -> Bounds {
+        Bounds {
+            x: self.x + pixels,
+            y: self.y + pixels,
+            width: self.width - pixels * 2.0,
+            height: self.height - pixels * 2.0
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
-pub struct Color(pub f32, pub f32, pub f32, pub f32);
+pub struct Color(pub Float, pub Float, pub Float, pub Float);
 
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub enum Pattern {
@@ -180,18 +201,18 @@ pub struct Gauge {
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Source {
-    Static(f32),
-    Oscillating(f32, f32),
-    Random(f32, f32),
+    Static(Float),
+    Oscillating(Float, Float),
+    Random(Float, Float),
     Channel(String),
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Function {
     Identity,
-    Scale(f32),
-    Linear(f32, f32),
-    Polynomial(Vec<f32>)
+    Scale(Float),
+    Linear(Float, Float),
+    Polynomial(Vec<Float>)
 }
 
 #[derive(Deserialize, Debug, Clone)]

@@ -30,6 +30,7 @@ use crate::config::{
     Bounds,
     Channel,
     Config,
+    Float,
     GaugeType,
     Screen,
     State,
@@ -48,7 +49,7 @@ enum Color {
     Green,
     Blue,
     Violet,
-    RGBA(f32, f32, f32, f32)
+    RGBA(Float, Float, Float, Float)
 }
 
 impl Color {
@@ -128,8 +129,8 @@ fn to_config_styleset(styles: StyleSet, defs: &StyleDefs) -> config::StyleSet {
 enum Label {
     None,
     Plain(String),
-    Sized(String, f32),
-    Styled(String, f32, Color),
+    Sized(String, Float),
+    Styled(String, Float, Color),
 }
 
 impl Label {
@@ -153,12 +154,12 @@ type StyleDefs = HashMap<StyleId, Style>;
 
 #[derive(Deserialize, Debug, Copy, Clone)]
 enum Length {
-    Pixel(f32),
-    Percent(f32)
+    Pixel(Float),
+    Percent(Float)
 }
 
 impl Length {
-    pub fn to_pixels(self, total: f32) -> f32 {
+    pub fn to_pixels(self, total: Float) -> Float {
         match self {
             Length::Pixel(x) => x,
             Length::Percent(x) => total * (x / 100.0)
@@ -203,7 +204,7 @@ impl Point {
         }
     }
 
-    fn to_pixels(value: Length, total: f32) -> f32 {
+    fn to_pixels(value: Length, total: Float) -> Float {
         match value {
             Length::Pixel(x) => x,
             Length::Percent(x) => (x / 100.0) * total
@@ -246,11 +247,11 @@ impl Layout {
                     height: p2.y - p1.y
                 }
             }, Layout::Grid(size, pos) => {
-                let cell_width = screen.width / size.1 as f32;
-                let cell_height = screen.height / size.0 as f32;
+                let cell_width = screen.width / (size.1 as Float);
+                let cell_height = screen.height / (size.0 as Float);
                 Bounds {
-                    x: pos.1 as f32 * cell_width,
-                    y: pos.0 as f32 * cell_height,
+                    x: (pos.1 as Float) * cell_width,
+                    y: (pos.0 as Float) * cell_height,
                     width: cell_width,
                     height: cell_height
                 }
@@ -289,7 +290,7 @@ impl Gauge {
             label: label.to_config(),
             kind: kind,
             channel: channel,
-            bounds: layout.to_config(screen),
+            bounds: layout.to_config(screen).inset(5.0),
             styles: to_config_styleset(styles, style_defs)
         }
     }
@@ -320,11 +321,9 @@ pub enum V1Error {
 
 impl V1 {
     fn to_config(self) -> Config {
-        let screen = Screen {
-            width: self.width as f32,
-            height: self.height as f32
-        };
-
+        let width = self.width as Float;
+        let height = self.height as Float;
+        let screen = Screen {width, height};
         let (pages, channels, conditions) = self.build_page_list(screen);
 
         Config {
