@@ -122,7 +122,7 @@ impl CairoRenderer {
 
     fn center_text(&self, cr: &Context, text: &str) {
         let extents = cr.text_extents(text);
-        cr.rel_move_to(-extents.width / 2.0, 0.0);
+        cr.rel_move_to(-extents.width * 0.5, extents.height * 0.5);
         cr.show_text(text)
     }
 
