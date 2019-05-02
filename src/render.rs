@@ -277,12 +277,12 @@ impl CairoRenderer {
             if let Some(value) = state.get(&gauge.channel) {
                 cr.rotate(scale.to_angle(value).into());
                 cr.move_to(-10.0, 0.0);
-                cr.rel_line_to(0.0, -radius);
+                cr.rel_line_to(-1.5, -radius * 0.99);
+                cr.rel_line_to(3.0, 0.0);
                 cr.line_to(10.0, 0.0);
                 cr.close_path();
                 cr.fill();
             }
-
             cr.arc(0.0, 0.0, radius / 10.0, 0.0, 2.0 * PI);
             cr.fill();
         }
