@@ -1,5 +1,7 @@
 # &mu;Dashboard
 
+![Screenshot](/relative/path/to/screeenshot.png?raw=true "Screenshot")
+
 &mu;Dashboard aspires be a feather-weight embedded dashboard application for
 motorsports use. It is in the earliest stages of development. It is not yet 
 ready for competitive use.
