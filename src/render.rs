@@ -25,10 +25,11 @@ use cairo::{Context, Format, ImageSurface, LineCap};
 
 use crate::config;
 use crate::config::{
-    // Bounds,
+    Bounds,
     Color,
     // Config,
     Divisions,
+    Float,
     Gauge,
     GaugeStyle,
     GaugeType,
@@ -143,6 +144,43 @@ impl CairoRenderer {
         cr.restore();
     }
 
+    // XXX: better name for this
+    fn show_outline(
+        &self,
+        cr: &Context,
+        gauge: &Gauge,
+        style: GaugeStyle,
+        state: &State
+    ) {
+        if self.set_foreground(cr, gauge, state) {
+            match style {
+                GaugeStyle::IndicatorOnly => (),
+                GaugeStyle::Outline => cr.stroke(),
+                GaugeStyle::Filled => cr.fill(),
+                GaugeStyle::Dashed => cr.fill(), // xxx not implemented
+            }
+        }
+    }
+
+    fn rounded_rect(cr: &Context, bounds: &Bounds, radius: Float) {
+        let centers = bounds.inset(radius);
+        let y1 = bounds.y;
+        let y2 = bounds.y + bounds.height;
+        let x2 = bounds.x + bounds.width;
+        let c1 = centers.top_left();
+        let c2 = centers.top_right();
+        let c3 = centers.bottom_right();
+        let c4 = centers.bottom_left();
+        cr.arc(c1.0, c1.1, radius, PI, PI * 1.5);
+        cr.line_to(c2.0, y1);
+        cr.arc(c2.0, c2.1, radius, PI * 1.5, 0.0);
+        cr.line_to(x2, c3.1);
+        cr.arc(c3.0, c3.1, radius, 0.0, PI * 0.5);
+        cr.line_to(c4.0, y2);
+        cr.arc(c4.0, c4.1, radius, PI * 0.5, PI);
+        cr.close_path();
+    }
+
     fn render_gauge(
         &self,
         cr: &Context,
@@ -152,12 +190,13 @@ impl CairoRenderer {
         match &gauge.kind  {
             GaugeType::Dial(opts)            =>
                 self.dial(cr, gauge, opts, state),
-            GaugeType::VerticalBar(opts)     => {println!("{:?}", opts)},
+            GaugeType::VerticalBar(opts)     =>
+                self.vertical_bar(cr, gauge, opts, state),
             GaugeType::HorizontalBar(opts)   => {println!("{:?}", opts)},
             GaugeType::VerticalWedge(opts)   => {println!("{:?}", opts)},
             GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)},
             GaugeType::IdiotLight(l)         => {println!("{:?}", l)},
-            GaugeType::Text(f, s)            => {println!("{:?}", s)}
+            GaugeType::Text(f, s)            => {println!("{:?} {:?}", f, s)}
         }
     }
 
@@ -172,22 +211,16 @@ impl CairoRenderer {
         let (cx, cy) = bounds.center();
         let radius = bounds.radius();
 
+        // Render main gauge background
         cr.translate(cx, cy);
-        if self.set_foreground(cr, gauge, state) {
-            cr.arc(0.0, 0.0, radius, 0.0, 2.0 * PI);
-            match scale.3 {
-                GaugeStyle::IndicatorOnly => (),
-                GaugeStyle::Outline => cr.stroke(),
-                GaugeStyle::Filled => cr.fill(),
-                GaugeStyle::Dashed => cr.fill(), // xxx not implemented
-            }
-        }
+        cr.arc(0.0, 0.0, radius, 0.0, 2.0 * PI);
+        self.show_outline(cr, gauge, scale.3, state);
 
-        self.set_pattern(cr, &self.default_style.background);
-        cr.set_font_size(14.0);
+        // Render label, offset from center
         cr.move_to(0.0, -radius * 0.15);
         self.center_label(cr, &gauge.label);
 
+        // Render divisions
         let (major, minor) = match &scale.2 {
             Divisions::None => (None, None),
             Divisions::Uniform(min) => (None, Some(min)),
@@ -195,6 +228,7 @@ impl CairoRenderer {
         };
 
         cr.set_line_cap(LineCap::Round);
+        self.set_background(cr, gauge, state);
 
         if let Some(ticks) = minor {
             cr.save();
@@ -234,6 +268,7 @@ impl CairoRenderer {
             cr.restore();
         }
 
+        // Render the indicator.
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
                 cr.rotate(scale.to_angle(value).into());
@@ -248,6 +283,48 @@ impl CairoRenderer {
             cr.fill();
         }
     }
+
+    fn vertical_bar(
+        &self,
+        cr: &Context,
+        gauge: &Gauge,
+        scale: &Scale,
+        state: &State
+    ) {
+        let bounds = gauge.bounds;
+        let corner_radius = 5.0;
+        let bar_bounds = Bounds {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width * 0.5,
+            height: bounds.height
+        };
+
+        Self::rounded_rect(cr, &bar_bounds, corner_radius);
+        self.show_outline(cr, gauge, scale.3, state);
+
+        if self.set_indicator(cr, gauge, state) {
+            if let Some(value) = state.get(&gauge.channel) {
+                let fill = bar_bounds.height * scale.to_percent(value);
+                cr.rectangle(
+                    bar_bounds.x,
+                    bar_bounds.y + fill,
+                    bar_bounds.width,
+                    bar_bounds.height - fill
+                );
+                cr.clip();
+
+                Self::rounded_rect(cr, &bar_bounds, corner_radius);
+                cr.fill();
+            }
+        }
+
+        self.set_background(cr, gauge, state);
+        let (cx, cy) = bar_bounds.center();
+        cr.move_to(cx, cy);
+        self.center_label(cr, &gauge.label);
+    }
+
 }
 
 pub struct PNGRenderer {

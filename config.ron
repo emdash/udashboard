@@ -69,8 +69,8 @@ V1(
       ), Gauge(
         name: "OIL_PRESSURE",
         label: Styled("Oil P.", 24.0, White),
-        kind: Dial(Scale(0, 600, None, Outline)),
-        channel: "ECT",
+        kind: VerticalBar(Scale(0, 600, None, Outline)),
+        channel: "OIL_PRESSURE",
         layout: Grid(GridSize(3, 5), GridPosition(2, 4)),
         styles: {Alarm("OIL_PRESSURE_LOW"): "DANGER"}
       )

@@ -241,6 +241,7 @@ fn render_loop(
     for page in pages.iter().cycle() {
         let val = 0.5 * ((clock.seconds() * 2.0).sin() + 1.0);
         state.values.insert("RPM".to_string(), 1500.0 * val);
+        state.values.insert("OIL_PRESSURE".to_string(), 230.0 * val);
         page.render(&card, &renderer, crtc, &state);
     }
 }
