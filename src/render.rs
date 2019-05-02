@@ -171,6 +171,7 @@ impl CairoRenderer {
         let c2 = centers.top_right();
         let c3 = centers.bottom_right();
         let c4 = centers.bottom_left();
+        cr.new_path();
         cr.arc(c1.0, c1.1, radius, PI, PI * 1.5);
         cr.line_to(c2.0, y1);
         cr.arc(c2.0, c2.1, radius, PI * 1.5, 0.0);
@@ -192,7 +193,8 @@ impl CairoRenderer {
                 self.dial(cr, gauge, opts, state),
             GaugeType::VerticalBar(opts)     =>
                 self.vertical_bar(cr, gauge, opts, state),
-            GaugeType::HorizontalBar(opts)   => {println!("{:?}", opts)},
+            GaugeType::HorizontalBar(opts)   =>
+                self.horizontal_bar(cr, gauge, opts, state),
             GaugeType::VerticalWedge(opts)   => {println!("{:?}", opts)},
             GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)},
             GaugeType::IdiotLight(l)         => {println!("{:?}", l)},
@@ -249,7 +251,7 @@ impl CairoRenderer {
             cr.set_line_width(10.0);
             for (_, value) in ticks {
                 cr.save();
-                cr.rotate(scale.to_angle(*value).into());
+                cr.rotate(scale.to_angle(*value));
                 cr.move_to(0.0, -radius * 0.95);
                 cr.line_to(0.0, -radius * 0.70);
                 cr.restore();
@@ -262,6 +264,7 @@ impl CairoRenderer {
                 cr.save();
                 cr.rotate(scale.to_angle(*value).into());
                 cr.line_to(0.0, -radius * 0.50);
+                cr.rotate(-scale.to_angle(*value));
                 self.center_label(cr, label);
                 cr.restore();
             }
@@ -305,7 +308,8 @@ impl CairoRenderer {
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
-                let fill = bar_bounds.height * scale.to_percent(value);
+                cr.save();
+                let fill = bar_bounds.height * (1.0 - scale.to_percent(value));
                 cr.rectangle(
                     bar_bounds.x,
                     bar_bounds.y + fill,
@@ -316,6 +320,7 @@ impl CairoRenderer {
 
                 Self::rounded_rect(cr, &bar_bounds, corner_radius);
                 cr.fill();
+                cr.restore();
             }
         }
 
@@ -325,6 +330,47 @@ impl CairoRenderer {
         self.center_label(cr, &gauge.label);
     }
 
+    fn horizontal_bar(
+        &self,
+        cr: &Context,
+        gauge: &Gauge,
+        scale: &Scale,
+        state: &State
+    ) {
+        let bounds = gauge.bounds;
+        let corner_radius = 5.0;
+        let bar_bounds = Bounds {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height * 0.5
+        };
+
+        Self::rounded_rect(cr, &bar_bounds, corner_radius);
+        self.show_outline(cr, gauge, scale.3, state);
+
+        if self.set_indicator(cr, gauge, state) {
+            if let Some(value) = state.get(&gauge.channel) {
+                cr.save();
+                cr.rectangle(
+                    bar_bounds.x,
+                    bar_bounds.y,
+                    bar_bounds.width * scale.to_percent(value),
+                    bar_bounds.height
+                );
+                cr.clip();
+
+                Self::rounded_rect(cr, &bar_bounds, corner_radius);
+                cr.fill();
+                cr.restore();
+            }
+        }
+
+        self.set_background(cr, gauge, state);
+        let (cx, cy) = bar_bounds.center();
+        cr.move_to(cx, cy);
+        self.center_label(cr, &gauge.label);
+    }
 }
 
 pub struct PNGRenderer {
