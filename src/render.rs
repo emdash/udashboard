@@ -302,6 +302,7 @@ impl CairoRenderer {
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
+                let bounds = bounds.inset(1.0);
                 cr.save();
                 let fill = bounds.height * (1.0 - scale.to_percent(value));
                 cr.rectangle(
@@ -339,6 +340,7 @@ impl CairoRenderer {
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
+                let bounds = bounds.inset(1.0);
                 cr.save();
                 cr.rectangle(
                     bounds.x,
