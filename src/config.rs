@@ -75,7 +75,7 @@ impl Scale {
     }
 
     pub fn to_angle(&self, val: Float) -> Float {
-        (1.25 * PI * (self.to_percent(val) - 0.5))
+        1.25 * PI * (self.to_percent(val) - 0.5)
     }
 }
 
