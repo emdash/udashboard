@@ -60,7 +60,7 @@ V1(
         label: Styled("ECT", 24.0, White),
         kind: HorizontalBar(Scale(0, 300, None, Outline)),
         channel: "ECT",
-        layout: Grid(GridSize(3, 5), GridPosition(2, 0)),
+        layout: Grid(GridSize(6, 5), GridPosition(5, 0)),
         styles: {
           Alarm("ECT_LOW"): "ECT_LOW",
           Alarm("ECT_GOOD"): "OK",
@@ -71,7 +71,7 @@ V1(
         label: Styled("Oil P.", 24.0, White),
         kind: VerticalBar(Scale(0, 60.0, None, Outline)),
         channel: "OIL_PRESSURE",
-        layout: Grid(GridSize(3, 5), GridPosition(2, 4)),
+        layout: Grid(GridSize(3, 10), GridPosition(2, 9)),
         styles: {Alarm("OIL_PRESSURE_LOW"): "DANGER"}
       )
   ], pages: [

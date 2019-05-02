@@ -296,36 +296,30 @@ impl CairoRenderer {
     ) {
         let bounds = gauge.bounds;
         let corner_radius = 5.0;
-        let bar_bounds = Bounds {
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width * 0.5,
-            height: bounds.height
-        };
 
-        Self::rounded_rect(cr, &bar_bounds, corner_radius);
+        Self::rounded_rect(cr, &bounds, corner_radius);
         self.show_outline(cr, gauge, scale.3, state);
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
                 cr.save();
-                let fill = bar_bounds.height * (1.0 - scale.to_percent(value));
+                let fill = bounds.height * (1.0 - scale.to_percent(value));
                 cr.rectangle(
-                    bar_bounds.x,
-                    bar_bounds.y + fill,
-                    bar_bounds.width,
-                    bar_bounds.height - fill
+                    bounds.x,
+                    bounds.y + fill,
+                    bounds.width,
+                    bounds.height - fill
                 );
                 cr.clip();
 
-                Self::rounded_rect(cr, &bar_bounds, corner_radius);
+                Self::rounded_rect(cr, &bounds, corner_radius);
                 cr.fill();
                 cr.restore();
             }
         }
 
         self.set_background(cr, gauge, state);
-        let (cx, cy) = bar_bounds.center();
+        let (cx, cy) = bounds.center();
         cr.move_to(cx, cy);
         self.center_label(cr, &gauge.label);
     }
@@ -339,35 +333,29 @@ impl CairoRenderer {
     ) {
         let bounds = gauge.bounds;
         let corner_radius = 5.0;
-        let bar_bounds = Bounds {
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height * 0.5
-        };
 
-        Self::rounded_rect(cr, &bar_bounds, corner_radius);
+        Self::rounded_rect(cr, &bounds, corner_radius);
         self.show_outline(cr, gauge, scale.3, state);
 
         if self.set_indicator(cr, gauge, state) {
             if let Some(value) = state.get(&gauge.channel) {
                 cr.save();
                 cr.rectangle(
-                    bar_bounds.x,
-                    bar_bounds.y,
-                    bar_bounds.width * scale.to_percent(value),
-                    bar_bounds.height
+                    bounds.x,
+                    bounds.y,
+                    bounds.width * scale.to_percent(value),
+                    bounds.height
                 );
                 cr.clip();
 
-                Self::rounded_rect(cr, &bar_bounds, corner_radius);
+                Self::rounded_rect(cr, &bounds, corner_radius);
                 cr.fill();
                 cr.restore();
             }
         }
 
         self.set_background(cr, gauge, state);
-        let (cx, cy) = bar_bounds.center();
+        let (cx, cy) = bounds.center();
         cr.move_to(cx, cy);
         self.center_label(cr, &gauge.label);
     }
