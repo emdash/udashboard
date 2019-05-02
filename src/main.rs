@@ -16,7 +16,10 @@
 // License along with this program.  If not, see
 // <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    env::args,
+};
 
 use udashboard::v1;
 use udashboard::config::{Style, Pattern, Color};
@@ -37,6 +40,9 @@ fn main() {
 
     let mut values = HashMap::new();
     values.insert("RPM".to_string(), 1500.0 as f32);
-
-    output::run(renderer);
+    if let Some(path) = args().nth(1) {
+        output::run(renderer, path);
+    } else {
+        println!("No device path given");
+    }
 }

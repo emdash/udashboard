@@ -295,6 +295,6 @@ fn render(card: Card, renderer: CairoRenderer) {
 
 
 // Entry point for rendering.
-pub fn run(renderer: CairoRenderer) -> () {
-    render(Card::open("/dev/dri/card0"), renderer);
+pub fn run(renderer: CairoRenderer, device: String) -> () {
+    render(Card::open(&device), renderer);
 }
