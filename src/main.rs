@@ -22,9 +22,12 @@ use std::{
 };
 
 use udashboard::v1;
-use udashboard::config::{Style, Pattern, Color};
-use udashboard::render::CairoRenderer;
-use udashboard::output;
+use udashboard::{
+    config::{Style, Pattern, Color},
+    output,
+    render::{CairoRenderer, PNGRenderer},
+    data::State
+};
 
 fn main() {
     let config = v1::load("config.ron".to_string()).unwrap();
@@ -38,11 +41,28 @@ fn main() {
         }
     );
 
-    let mut values = HashMap::new();
-    values.insert("RPM".to_string(), 1500.0 as f32);
     if let Some(path) = args().nth(1) {
         output::run(renderer, path);
     } else {
-        println!("No device path given");
+        println!("No device path given, rendering to png.");
+
+        let mut state = State {
+            values: HashMap::new(),
+            states: HashMap::new(),
+            time: 0
+        };
+
+        state.values.insert("RPM".to_string(), 1500.0);
+        state.values.insert("OIL_PRESSURE".to_string(), 45.0);
+        state.values.insert("ECT".to_string(), 205.0);
+        state.values.insert("SESSION_TIME".to_string(), 105.0);
+        state.values.insert("GEAR".to_string(), 5.0);
+        state.values.insert("RPM".to_string(), 1500.0);
+
+        PNGRenderer::new(
+            "screenshot.png".to_string(),
+            config.screen,
+            renderer
+        ).render(&state);
     }
 }

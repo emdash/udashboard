@@ -400,18 +400,9 @@ impl PNGRenderer {
     pub fn new(
         path: String,
         screen: Screen,
-        pages: Vec<Vec<Gauge>>,
-        default_style: Style
+        renderer: CairoRenderer
     ) -> PNGRenderer {
-        PNGRenderer {
-            renderer: CairoRenderer::new(
-                screen,
-                pages,
-                default_style,
-            ),
-            path: path,
-            screen: screen
-        }
+        PNGRenderer {renderer, path, screen}
     }
 
     pub fn render(&self, state: &State) {
@@ -421,6 +412,7 @@ impl PNGRenderer {
             self.screen.height as i32
         ).expect("Couldn't create surface.");
         let cr = Context::new(&surface);
+
         self.renderer.render(&cr, state);
         let mut file = File::create(self.path.clone())
             .expect("couldn't create file");
