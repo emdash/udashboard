@@ -156,6 +156,22 @@ impl Bounds {
             height: self.height - pixels * 2.0
         }
     }
+
+    pub fn top_left(&self) -> (Float, Float) {
+        (self.x, self.y)
+    }
+
+    pub fn top_right(&self) -> (Float, Float) {
+        (self.x + self.width, self.y)
+    }
+
+    pub fn bottom_left(&self) -> (Float, Float) {
+        (self.x, self.y + self.height)
+    }
+
+    pub fn bottom_right(&self) -> (Float, Float) {
+        (self.x + self.width, self.y + self.height)
+    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
