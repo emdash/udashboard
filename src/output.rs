@@ -134,7 +134,6 @@ impl Page {
         // This is the only format that seems to work...
         let fmt = PixelFormat::RGB565;
         let sz = mode.size();
-        println!("sz: {:?}", sz);
         let mut db = RefCell::new(
             DumbBuffer::create_from_device(
                 card,
@@ -145,6 +144,32 @@ impl Page {
 
         let fb = createfb(card, db.get_mut()).expect("!").handle();
         Page {fb, db}
+    }
+
+    fn get_image_surface(&self) -> ImageSurface {
+        let db = self.db.borrow();
+        let (width, height) = db.size();
+        let (width, height) = (width as i32, height as i32);
+        let stride = db.pitch() as i32;
+        let format = Format::Rgb16_565;
+
+        if format.stride_for_width(width as u32) == Ok(stride) {
+            ImageSurface::create(
+                Format::Rgb16_565,
+                width as i32,
+                height as i32
+            )
+        } else {
+            let size = (height as usize) * (stride as usize);
+            let buffer = vec![0; size];
+            ImageSurface::create_for_data(
+                buffer,
+                format,
+                width,
+                height,
+                stride
+            )
+        }.expect("couldn't create surface")
     }
 
     fn render_priv(
@@ -170,22 +195,12 @@ impl Page {
         // system down repeatedly. I strongly suspect that cairo's
         // rasterizer commits access violations, and while this is
         // normally harmless, it's death when you're dealing with
-        // shared memory and frame buffers. In the end, the extra work
-        // done here is negligible compared to the cost of rendering.
-        // And, with Rust, the path of least resistance is to hide
-        // nasty stateful stuff on the call stack.
+        // shared memory and frame buffers. I will revisit this if / when
+        // framerate becomes an issue.
 
+        let mut s = self.get_image_surface();
         let mut db = self.db.borrow_mut();
-        let (w, h) = db.size();
-        println!("sz: {:?}", db.size());
-
         let mut dm = db.map(card).expect("couldn't map buffer");
-        let mut s = ImageSurface::create(
-            Format::Rgb16_565,
-            w as i32,
-            h as i32
-        ).expect("Couldn't create surface");
-
         self.render_priv(&s, state, renderer);
 
         dm.as_mut().copy_from_slice(
