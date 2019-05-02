@@ -238,11 +238,15 @@ fn render_loop(
 
     state.values.insert("RPM".to_string(), 1500.0);
 
+    let start = clock.seconds();
     for page in pages.iter().cycle() {
-        let val = 0.5 * clock.seconds().sin() + 0.5;
+        let time = clock.seconds() - start;
+        let val = 0.5 * time.sin() + 0.5;
         state.values.insert("RPM".to_string(), 6500.0 * val);
         state.values.insert("OIL_PRESSURE".to_string(), 60.0 * val);
         state.values.insert("ECT".to_string(), 230.0 * val);
+        state.values.insert("SESSION_TIME".to_string(), time);
+        state.values.insert("GEAR".to_string(), 1.0 + 5.0 * val);
         page.render(&card, &renderer, crtc, &state);
     }
 }

@@ -17,6 +17,11 @@ V1(
       source: Oscillating(0, 60),
       units: Named("F"),
       transform: Identity,
+    ), Channel(
+       name: "SESSION_TIME",
+       source: Oscillating(0, 60),
+       units: None,
+       transform: Identity
     )
   ], conditions: [
      When("RPM",  GreaterThan(6000.0),   Alarm("OVERRUN")),
@@ -73,9 +78,23 @@ V1(
         channel: "OIL_PRESSURE",
         layout: Grid(GridSize(3, 10), GridPosition(2, 9)),
         styles: {Alarm("OIL_PRESSURE_LOW"): "DANGER"}
+      ), Gauge(
+         name: "Time",
+         label: Styled("Time: ", 24.0, Orange),
+         kind: Text(Time(1.0), Outline),
+         channel: "SESSION_TIME",
+         layout: Grid(GridSize(6, 3), GridPosition(5, 1)),
+         styles: {}
+      ), Gauge(
+         name: "Gear",
+         label: Styled("", 72.0, Orange),
+         kind: Text(Integer(1), Filled),
+         channel: "GEAR",
+         layout: Grid(GridSize(6, 10), GridPosition(5, 8)),
+         styles: {}
       )
   ], pages: [
-    Page(["Tach", "Coolant", "OIL_PRESSURE"]),
+    Page(["Tach", "Coolant", "OIL_PRESSURE", "Time", "Gear"]),
   ], styles: {
     Default: Style(
       background: Solid(Black),

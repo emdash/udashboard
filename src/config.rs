@@ -35,6 +35,17 @@ pub enum Label {
     Styled(String, Float, Color),
 }
 
+impl Label {
+    pub fn append(&self, text: &String) -> Label {
+        match self {
+            Label::None => Label::Plain(text.clone()),
+            Label::Plain(t) => Label::Plain(t.clone() + text),
+            Label::Sized(t, s) => Label::Sized(t.clone() + text, *s),
+            Label::Styled(t, s, c) => Label::Styled(t.clone() + text, *s, *c)
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Screen {
     pub width: Float,
@@ -48,10 +59,43 @@ pub enum Divisions {
     MajorMinor(Vec<(Label, Float)>, Vec<Float>),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub enum Format {
-    Numeric(u32, u32),
-    Custom(String)
+    Integer(u32),
+    Decimal(u32, u32),
+    Time(Float),
+}
+
+impl Format {
+    pub fn format_value(&self, value: Float) -> String {
+        match self {
+            Format::Integer(width) => format!(
+                "{value:width$}",
+                value = value as i32,
+                width = *width as usize
+            ),
+            Format::Decimal(int, dec) => format!(
+                "{value:int$.dec$}",
+                value = value,
+                int = *int as usize,
+                dec = *dec as usize
+            ),
+            Format::Time(scale) => {
+                let seconds = value * scale;
+                let subseconds = (seconds * 100.0) as i32;
+                let minutes = (seconds as i32) / 60;
+                let hours = minutes / 60;
+
+                format!(
+                    "{h:2}:{m:02}:{s:02}.{ss:02}",
+                    h = hours,
+                    m = minutes % 60,
+                    s = (seconds as i32) % 60,
+                    ss = subseconds % 100
+                )
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]

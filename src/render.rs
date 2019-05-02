@@ -198,7 +198,8 @@ impl CairoRenderer {
             GaugeType::VerticalWedge(opts)   => {println!("{:?}", opts)},
             GaugeType::HorizontalWedge(opts) => {println!("{:?}", opts)},
             GaugeType::IdiotLight(l)         => {println!("{:?}", l)},
-            GaugeType::Text(f, s)            => {println!("{:?} {:?}", f, s)}
+            GaugeType::Text(f, s)            =>
+                self.text(cr, gauge, *f, *s, state)
         }
     }
 
@@ -360,6 +361,32 @@ impl CairoRenderer {
         let (cx, cy) = bounds.center();
         cr.move_to(cx, cy);
         self.center_label(cr, &gauge.label);
+    }
+
+    fn text(
+        &self,
+        cr: &Context,
+        gauge: &Gauge,
+        format: config::Format,
+        style: GaugeStyle,
+        state: &State
+    ) {
+        let bounds = gauge.bounds;
+        let corner_radius = 5.0;
+        Self::rounded_rect(cr, &bounds, corner_radius);
+        self.show_outline(cr, gauge, style, state);
+
+        if self.set_indicator(cr, gauge, state) {
+            let (cx, cy) = bounds.center();
+            let label = if let Some(value) = state.get(&gauge.channel) {
+                let formatted = format.format_value(value);
+                gauge.label.append(&formatted)
+            } else {
+                gauge.label.clone()
+            };
+            cr.move_to(cx, cy);
+            self.center_label(cr, &label);
+        }
     }
 }
 
