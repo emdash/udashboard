@@ -71,7 +71,7 @@ impl Scale {
     }
 
     pub fn to_percent(&self, val: Float) -> Float {
-        (val - self.0) / self.range()
+        ((val - self.0) / self.range()).max(self.0).min(self.1)
     }
 
     pub fn to_angle(&self, val: Float) -> Float {
