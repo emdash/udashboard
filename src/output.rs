@@ -195,11 +195,14 @@ impl Page {
         // system down repeatedly. I strongly suspect that cairo's
         // rasterizer commits access violations, and while this is
         // normally harmless, it's death when you're dealing with
-        // shared memory and frame buffers. I will revisit this if / when
-        // framerate becomes an issue.
+        // shared memory and frame buffers. I will revisit this if /
+        // when framerate becomes an issue.
 
         let mut s = self.get_image_surface();
         let mut db = self.db.borrow_mut();
+
+        // XXX: if we can't avoid the memcpy anyway, is it possible /
+        // better to *write* to the framebuffer?
         let mut dm = db.map(card).expect("couldn't map buffer");
         self.render_priv(&s, state, renderer);
 
@@ -210,7 +213,9 @@ impl Page {
         crtc::page_flip(card, crtc, self.fb, &PFFLAGS)
             .expect("Could not set CRTC");
 
-        // can't start drawing until p1 is showing
+        // XXX: This blocks until the page flip occurs, which could be
+        // a relatively long time. Revisit this if / when framerate
+        // becomes an issue.
         await_vblank(&card);
     }
 }
