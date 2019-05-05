@@ -9,6 +9,7 @@ license = "LGPL-3.0-or-later"
 ron = "*"
 nix = "0.11.0"
 cairo-sys-rs = "0.8.0"
+serde_json = "*"
 
 [dependencies.drm]
 git = "https://github.com/emdash/drm-rs"

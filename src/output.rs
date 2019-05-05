@@ -16,13 +16,11 @@
 // License along with this program.  If not, see
 // <https://www.gnu.org/licenses/>.
 
-use crate::clock::Clock;
 use crate::render::CairoRenderer;
-use crate::data::State;
+use crate::data::{State, DataSource};
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
     format,
     fs::{OpenOptions, File},
     os::unix::io::{
@@ -222,39 +220,28 @@ impl Page {
 
 
 // Loop forever rendering things al the things.
-fn render_loop(
+fn render_loop<DS>(
     card: Card,
     crtc: crtc::Handle,
     renderer: CairoRenderer,
-    pages: [Page; 2]
-) {
-    let clock = Clock::new();
-
-    let mut state = State {
-        values: HashMap::new(),
-        states: HashMap::new(),
-        time: 0
-    };
-
-    state.values.insert("RPM".to_string(), 1500.0);
-
-    let start = clock.seconds();
+    pages: [Page; 2],
+    mut data: DS
+) where DS: DataSource {
     for page in pages.iter().cycle() {
-        let time = clock.seconds() - start;
-        let val = 0.5 * time.sin() + 0.5;
-        state.values.insert("RPM".to_string(), 6500.0 * val);
-        state.values.insert("OIL_PRESSURE".to_string(), 60.0 * val);
-        state.values.insert("ECT".to_string(), 230.0 * val);
-        state.values.insert("SESSION_TIME".to_string(), time);
-        state.values.insert("GEAR".to_string(), 1.0 + 5.0 * val);
-        page.render(&card, &renderer, crtc, &state);
+        page.render(&card, &renderer, crtc, &data.get_state());
     }
 }
 
 
 // Run forever, redrawing the screen as fast as possible, using
 // double-buffering.
-fn render(card: Card, renderer: CairoRenderer) {
+pub fn run<DS> (
+    device: String,
+    renderer: CairoRenderer,
+    data: DS
+) where DS: DataSource {
+    let card = Card::open(&device);
+
     // Set up the connection to the GPU ....
     let res = card
         .resource_handles()
@@ -294,11 +281,5 @@ fn render(card: Card, renderer: CairoRenderer) {
     crtc::set(&card, crtc.handle(), pages[0].fb, &con_hdl, orig, Some(mode))
         .expect("Could not set CRTC");
 
-    render_loop(card, crtc.handle(), renderer, pages);
-}
-
-
-// Entry point for rendering.
-pub fn run(renderer: CairoRenderer, device: String) -> () {
-    render(Card::open(&device), renderer);
+    render_loop(card, crtc.handle(), renderer, pages, data);
 }

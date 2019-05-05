@@ -19,6 +19,7 @@
 use std::{
     collections::HashMap,
     env::args,
+    io::stdin
 };
 
 use udashboard::v1;
@@ -26,7 +27,7 @@ use udashboard::{
     config::{Style, Pattern, Color},
     output,
     render::{CairoRenderer, PNGRenderer},
-    data::State
+    data::{State, StdinSource}
 };
 
 fn main() {
@@ -42,14 +43,14 @@ fn main() {
     );
 
     if let Some(path) = args().nth(1) {
-        output::run(renderer, path);
+        output::run(path, renderer, StdinSource::new(stdin()));
     } else {
         println!("No device path given, rendering to png.");
 
         let mut state = State {
             values: HashMap::new(),
             states: HashMap::new(),
-            time: 0
+            time: 0.0
         };
 
         state.values.insert("RPM".to_string(), 1500.0);

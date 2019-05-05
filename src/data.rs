@@ -18,44 +18,47 @@
 
 // Data handling
 
-use std::collections::HashMap;
-use crate::config::{Logic, Float};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::BufReader,
+    io::BufRead,
+    io::Read,
+    io::Stdin
+};
 
+use serde_json;
 
+use crate::config::{Float};
+use crate::clock::Clock;
+
+#[derive(Debug, Clone)]
 pub struct State {
     pub values: HashMap<String, Float>,
     pub states: HashMap<String, bool>,
-    pub time: u64
+    pub time: Float
 }
-
 
 pub struct Sample {
     pub values: HashMap<String, Float>,
-    pub time: u64
+    pub time: Float
 }
-
 
 impl State {
     pub fn new() -> State {
         State {
             values: HashMap::new(),
             states: HashMap::new(),
-            time: 0
+            time: 0.0
         }
     }
 
     pub fn update(
-        mut self,
-        sample: Sample,
-        _logic: &Logic,
-    ) -> State {
+        &mut self,
+        sample: Sample
+    ) {
         self.values.extend(sample.values);
-
-        State {
-            values: self.values,
-            states: self.states,
-            time: sample.time
-        }
+        self.time = sample.time;
     }
 
     pub fn get(&self, key: &String) -> Option<Float> {
@@ -66,3 +69,43 @@ impl State {
         }
     }
 }
+
+pub trait DataSource {
+    fn get_state(&mut self) -> State;
+}
+
+pub struct ReaderSource<R: Read> {
+    reader: BufReader<R>,
+    state: State,
+    clock: Clock
+}
+
+impl<R> ReaderSource<R> where R: Read {
+    pub fn new(read: R) -> ReaderSource<R> {
+        let reader = BufReader::new(read);
+        let state = State::new();
+        let clock = Clock::new();
+        ReaderSource {reader, state, clock}
+    }
+}
+
+impl<R> DataSource for ReaderSource<R> where R: Read {
+    fn get_state(&mut self) -> State {
+        let mut line: String = String::new();
+        self.reader.read_line(&mut line);
+
+        let time = self.clock.seconds();
+
+        let sample = if let Ok(values) = serde_json::from_str(&line) {
+            Sample {values, time}
+        } else {
+            Sample {values: HashMap::new(), time}
+        };
+
+        self.state.update(sample);
+        self.state.clone()
+    }
+}
+
+pub type FileSource = ReaderSource<File>;
+pub type StdinSource = ReaderSource<Stdin>;
