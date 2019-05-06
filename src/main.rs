@@ -27,7 +27,7 @@ use udashboard::{
     config::{Style, Pattern, Color},
     output,
     render::{CairoRenderer, PNGRenderer},
-    data::{State, StdinSource}
+    data::{State, ReadSource}
 };
 
 fn main() {
@@ -43,7 +43,7 @@ fn main() {
     );
 
     if let Some(path) = args().nth(1) {
-        output::run(path, renderer, StdinSource::new(stdin()));
+        output::run(path, renderer, ReadSource::new(stdin()));
     } else {
         println!("No device path given, rendering to png.");
 

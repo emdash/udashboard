@@ -19,12 +19,15 @@
 // Data handling
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    fs::File,
-    io::BufReader,
-    io::BufRead,
-    io::Read,
-    io::Stdin
+    io::{
+        BufReader,
+        BufRead,
+        Read
+    },
+    sync::{Arc,Mutex, Condvar},
+    thread::{spawn}
 };
 
 use serde_json;
@@ -71,41 +74,59 @@ impl State {
 }
 
 pub trait DataSource {
-    fn get_state(&mut self) -> State;
+    fn get_state(&self) -> State;
 }
 
-pub struct ReaderSource<R: Read> {
-    reader: BufReader<R>,
-    state: State,
-    clock: Clock
+
+pub struct ReadSource {
+    line: Arc<Mutex<String>>,
+    cv: Arc<Condvar>,
+    state: RefCell<State>
 }
 
-impl<R> ReaderSource<R> where R: Read {
-    pub fn new(read: R) -> ReaderSource<R> {
-        let reader = BufReader::new(read);
-        let state = State::new();
-        let clock = Clock::new();
-        ReaderSource {reader, state, clock}
+impl ReadSource {
+    pub fn new<R>(src: R) -> ReadSource where R: Read + Send + 'static {
+        let line = Arc::new(Mutex::new(String::new()));
+        let cv = Arc::new(Condvar::new());
+        let state = RefCell::new(State::new());
+        let thread_cv = cv.clone();
+        let thread_line = line.clone();
+
+        let _ = spawn(move || {
+            let mut reader = BufReader::new(src);
+            loop {
+                let mut lg = thread_line
+                    .lock()
+                    .unwrap();
+
+                lg.clear();
+                reader.read_line(&mut lg).unwrap();
+
+                println!("update");
+
+                thread_cv.notify_all();
+            }
+        });
+
+        ReadSource {line, cv, state}
     }
 }
 
-impl<R> DataSource for ReaderSource<R> where R: Read {
-    fn get_state(&mut self) -> State {
-        let mut line: String = String::new();
-        self.reader.read_line(&mut line);
-
-        let time = self.clock.seconds();
-
-        let sample = if let Ok(values) = serde_json::from_str(&line) {
-            Sample {values, time}
-        } else {
-            Sample {values: HashMap::new(), time}
+impl DataSource for ReadSource {
+    fn get_state(&self) -> State {
+        println!("get state");
+        let line = {
+            let lg = self.line.lock().unwrap();
+            self.cv.wait(lg).unwrap().clone()
         };
 
-        self.state.update(sample);
-        self.state.clone()
+        let sample = if let Ok(values) = serde_json::from_str(&line) {
+            Sample {values, time: 0.0}
+        } else {
+            Sample {values: HashMap::new(), time: 0.0}
+        };
+
+        self.state.borrow_mut().update(sample);
+        self.state.borrow().clone()
     }
 }
-
-pub type FileSource = ReaderSource<File>;
-pub type StdinSource = ReaderSource<Stdin>;

@@ -18,6 +18,7 @@
 
 use crate::render::CairoRenderer;
 use crate::data::{State, DataSource};
+use crate::clock::Clock;
 
 use std::{
     cell::RefCell,
@@ -225,9 +226,11 @@ fn render_loop<DS>(
     crtc: crtc::Handle,
     renderer: CairoRenderer,
     pages: [Page; 2],
-    mut data: DS
+    data: DS
 ) where DS: DataSource {
+    let clock = Clock::new();
     for page in pages.iter().cycle() {
+        println!("render: {}", clock.seconds());
         page.render(&card, &renderer, crtc, &data.get_state());
     }
 }
