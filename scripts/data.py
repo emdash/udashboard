@@ -19,5 +19,7 @@ def value(k, t):
 
 while True:
     t = time.time()
-    print json.dumps({k: value(k, t) for k in sorted(channels)})
+    sys.stdout.write(json.dumps({k: channels[k](t) for k in sorted(channels)}))
+    sys.stdout.write('\n')
+    sys.stdout.flush()
     time.sleep(delay)
