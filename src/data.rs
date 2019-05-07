@@ -26,7 +26,7 @@ use std::{
         BufRead,
         Read
     },
-    sync::{Arc,Mutex, Condvar},
+    sync::{Arc, mpsc::{sync_channel, Receiver, TrySendError}},
     thread::{spawn}
 };
 
@@ -79,47 +79,42 @@ pub trait DataSource {
 
 
 pub struct ReadSource {
-    line: Arc<Mutex<String>>,
-    cv: Arc<Condvar>,
+    receiver: Receiver<String>,
     state: RefCell<State>
 }
 
 impl ReadSource {
     pub fn new<R>(src: R) -> ReadSource where R: Read + Send + 'static {
-        let line = Arc::new(Mutex::new(String::new()));
-        let cv = Arc::new(Condvar::new());
         let state = RefCell::new(State::new());
-        let thread_cv = cv.clone();
-        let thread_line = line.clone();
+        let (sender, receiver) = sync_channel(0);
 
         let _ = spawn(move || {
             let mut reader = BufReader::new(src);
             loop {
-                let mut lg = thread_line
-                    .lock()
-                    .unwrap();
-
-                lg.clear();
-                reader.read_line(&mut lg).unwrap();
-
                 println!("update");
+                let mut line = String::new();
 
-                thread_cv.notify_all();
+                line.clear();
+                reader.read_line(&mut line);
+
+                match sender.try_send(line) {
+                    Ok(_) => (),
+                    Err(TrySendError::Full(_)) => (),
+                    Err(TrySendError::Disconnected(_)) => {
+                        panic!("noooo!");
+                    }
+                }
             }
         });
 
-        ReadSource {line, cv, state}
+        ReadSource {receiver, state}
     }
 }
 
 impl DataSource for ReadSource {
     fn get_state(&self) -> State {
         println!("get state");
-        let line = {
-            let lg = self.line.lock().unwrap();
-            self.cv.wait(lg).unwrap().clone()
-        };
-
+        let line = self.receiver.recv().unwrap();
         let sample = if let Ok(values) = serde_json::from_str(&line) {
             Sample {values, time: 0.0}
         } else {
