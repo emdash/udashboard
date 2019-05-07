@@ -3,19 +3,26 @@ import time
 import math
 import json
 
-delay = 0.1
+delay = 0.025
+
+def sin_range(lower, upper):
+    range = upper - lower
+    def sin_range_impl(x):
+        return range * (0.5 * math.sin(x) + 0.5)
+
+    return sin_range_impl
+
+def identity(x): return x
+
+def offset(offset): return lambda x: x - offset
 
 channels = {
-    "RPM": (0, 6500),
-    "ECT": (0, 300),
-    "OIL_PRESSURE": (0, 60),
-    "SESSION_TIME": (0, 60)
+    "RPM": sin_range(0, 6500),
+    "ECT": sin_range(0, 230),
+    "OIL_PRESSURE": sin_range(0, 60),
+    "SESSION_TIME": offset(time.time())
 }
 
-def value(k, t):
-    l, u = channels[k]
-    r = u - l
-    return r * math.sin(time.time()) + l
 
 while True:
     t = time.time()
