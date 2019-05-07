@@ -88,18 +88,15 @@ impl ReadSource {
         let state = RefCell::new(State::new());
         let (sender, receiver) = sync_channel(0);
 
-        let _ = spawn(move || {
+        spawn(move || {
             let mut reader = BufReader::new(src);
             loop {
-                println!("update");
                 let mut line = String::new();
-
-                line.clear();
                 reader.read_line(&mut line);
 
                 match sender.try_send(line) {
                     Ok(_) => (),
-                    Err(TrySendError::Full(_)) => (),
+                    Err(TrySendError::Full(_)) => println!("full"),
                     Err(TrySendError::Disconnected(_)) => {
                         panic!("noooo!");
                     }
@@ -113,7 +110,6 @@ impl ReadSource {
 
 impl DataSource for ReadSource {
     fn get_state(&self) -> State {
-        println!("get state");
         let line = self.receiver.recv().unwrap();
         let sample = if let Ok(values) = serde_json::from_str(&line) {
             Sample {values, time: 0.0}

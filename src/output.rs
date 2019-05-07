@@ -230,7 +230,6 @@ fn render_loop<DS>(
 ) where DS: DataSource {
     let clock = Clock::new();
     for page in pages.iter().cycle() {
-        println!("render: {}", clock.seconds());
         page.render(&card, &renderer, crtc, &data.get_state());
     }
 }
