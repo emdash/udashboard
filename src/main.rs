@@ -31,7 +31,9 @@ use udashboard::{
 };
 
 fn main() {
-    let config = v1::load("config.ron".to_string()).unwrap();
+    let config = v1::load(args().nth(1).unwrap())
+        .expect("couldn't load config");
+
     let renderer = CairoRenderer::new(
         config.screen,
         config.pages,
@@ -42,7 +44,7 @@ fn main() {
         }
     );
 
-    if let Some(path) = args().nth(1) {
+    if let Some(path) = args().nth(2) {
         output::run(path, renderer, ReadSource::new(stdin()));
     } else {
         println!("No device path given, rendering to png.");

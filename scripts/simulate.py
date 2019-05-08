@@ -19,6 +19,7 @@ import math
 import json
 import random
 
+
 def parse_identity(argv):
     return ((argv[0], lambda x: x), argv[1:])
 
@@ -48,8 +49,6 @@ def parse_rand(argv):
 def parse_channels(argv):
     channels = {}
     while argv:
-        print argv
-        print repr(channels)
         token = argv[0]
 
         if token == "--identity":
@@ -80,12 +79,13 @@ def parse_args(argv):
 try:
     delay, channels = parse_args(sys.argv[1:])
 except BaseException, e:
-    print e
     print __doc__
     exit(-1)
 
+
+start = time.time()
 while True:
-    t = time.time()
+    t = time.time() - start
     sys.stdout.write(json.dumps({k: channels[k](t) for k in sorted(channels)}))
     sys.stdout.write('\n')
     sys.stdout.flush()
