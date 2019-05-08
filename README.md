@@ -24,6 +24,17 @@ ready for competitive use.
 - cairo-rs + dependencies
 - ron + serde (for configuration)
 
+## Data Input
+
+uDashboard can display data from any source, so long as it's `stdin`
+and so long as it's json.. The input is read line-by-line, and each
+line is expected to contain a single JSON map. The keys should
+correspond to channels in your config. The values should all be
+numbers.
+
+- See `scripts/simulate.py` for a script which generates test data.
+- See `scripts/replay.py` for a script which will replay data from a text file.
+
 ## Configuration
 
 Configuration is currently based on Ron, which is similar in spirit to JSON,
