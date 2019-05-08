@@ -260,14 +260,6 @@ pub struct Gauge {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub enum Source {
-    Static(Float),
-    Oscillating(Float, Float),
-    Random(Float, Float),
-    Channel(String),
-}
-
-#[derive(Deserialize, Debug, Clone)]
 pub enum Function {
     Identity,
     Scale(Float),
@@ -278,9 +270,7 @@ pub enum Function {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Channel {
     pub name: String,
-    pub source: Source,
-    pub units: Unit,
-    pub transform: Function
+    pub units: Unit
 }
 
 #[derive(Deserialize, Debug, Clone)]

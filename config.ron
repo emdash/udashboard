@@ -2,27 +2,10 @@ V1(
   width: 1024,
   height: 600,
   channels: [
-    Channel(
-      name: "RPM",
-      source: Oscillating(0, 6500),
-      units: Named("RPM"),
-      transform: Identity
-    ), Channel(
-      name: "ECT",
-      source: Oscillating(0, 300),
-      units: Named("F"),
-      transform: Identity,
-    ), Channel(
-      name: "OIL_PRESSURE",
-      source: Oscillating(0, 60),
-      units: Named("F"),
-      transform: Identity,
-    ), Channel(
-       name: "SESSION_TIME",
-       source: Oscillating(0, 60),
-       units: None,
-       transform: Identity
-    )
+    Channel(name: "RPM",          units: Named("RPM")),
+    Channel(name: "ECT",          units: Named("F")),
+    Channel(name: "OIL_PRESSURE", units: Named("F")),
+    Channel(name: "SESSION_TIME", units: None)
   ], conditions: [
      When("RPM",  GreaterThan(6000.0),   Alarm("OVERRUN")),
      When("OILP", LessThan(20.0),        Alarm("OILP_LOW")),
