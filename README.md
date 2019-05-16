@@ -96,13 +96,13 @@ to any condition, if the user so desires.
 
 - [ ] finish implementing all the gauge types defined by the current config syntax.
 - [ ] alerts, conditions, and dynamic style switching.
-- [ ] data deserializing via stdin
-- [ ] impelement data generator test app
+- [x] data deserializing via stdin
+- [x] impelement data generator test app
 - [ ] define and implement more friendly configuration syntax...
 - [ ] ... and / or a graphical configuration editor ...
 - [ ] ... and / or compatibility with existing RCP config files.
-- [ ] RaceCapture pro data source
-- [ ] GPU acceleration.
+- [ ] RaceCapture pro data source (in progress)
+- [ ] GPU acceleration (low priority)
 - [ ] Allow acting as or integrating with a boot splash utility (e.g. plymouth).
 
 ## Questions you probably have
