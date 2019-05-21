@@ -42,39 +42,75 @@ class Point(object):
         yield self.y
 
 
+def frange(lower, upper, step):
+    accum = lower
+    while accum < upper:
+        yield accum
+        accum += step
+
+
 class VM(object):
 
-    def __init__(self, target, env={}):
+    def __init__(self, target, env={}, trace=False):
         self.stack = []
+        self.lists = []
         self.env = env
-        self.list = []
         self.target = target
+        self.trace = trace
 
     def run(self, program):
-        for token in program:
-            self.execute(token)
+        if self.trace:
+            print "PROG:", program
+        for (pc, token) in enumerate(program):
+            if self.trace:
+                print "PC: %3d %9s" % (pc, token),
+            self.execute(pc, token, program)
+            if self.trace:
+                print "STAK: %r L: %r " % (self.stack, self.env)
 
-    def execute(self, token):
+    def execute(self, pc, token, program):
         if token == "[":
-            self.list.append([])
+            if self.trace:
+                print " LIST ",
+            self.lists.append([])
             return
         elif token == "]":
-            lst = self.list.pop()
-            if self.list:
-                self.list[-1].append(lst)
+            if self.trace:
+                print " LIST ",
+            if len(self.lists) > 1:
+                nested = self.lists.pop()
+                self.lists[-1].append(nested)
+            elif len(self.lists) == 1:
+                self.push(self.lists.pop())
             else:
-                self.push(lst)
+                raise VMError("Mismatched ]")
+            return
+        elif token == "loop":
+            if self.trace:
+                print " LOOP ",
+            # body, token are the tuples we push from ]
+            body = self.pop()
+            collection = self.pop()
+            for value in collection:
+                self.push(value)
+                self.run(body)
             return
 
-        if self.list:
-            self.list[-1].append(token)
-            return
-
-        if token in self.opcodes:
+        if self.lists:
+            if self.trace:
+                print " LIST ",
+            self.lists[-1].append(self.parse(token))
+        elif token in self.opcodes:
+            if self.trace:
+                print " OPCD ",
             self.opcodes[token](self)
         elif token in self.env:
+            if self.trace:
+                print " FUNC ",
             self.run(self.env[token])
         else:
+            if self.trace:
+                print " PUSH ",
             self.push(self.parse(token))
 
     def parse(self, token):
@@ -111,19 +147,15 @@ class VM(object):
     def dup(self):  self.push(self.peek(0))
     def rel(self):  self.push(self.peek(self.pop()))
     def add(self):  self.push(self.pop() + self.pop())
-    def sub(self):  self.push(self.pop() - self.pop())
+    def sub(self):
+        b = self.pop()
+        a = self.pop()
+        self.push(a - b)
     def mul(self):  self.push(self.pop() * self.pop())
     def div(self):  self.push(self.pop() * self.pop())
     def mod(self):  self.push(self.pop() % self.pop())
     def max(self):  self.push(max(self.pop(), self.pop()))
     def min(self):  self.push(min(self.pop(), self.pop()))
-
-    def loop(self):
-        body = self.pop()
-        collection = self.pop()
-        for value in collection:
-            self.push(value)
-            self.run(body)
 
     def define(self):
         body = self.pop()
@@ -132,6 +164,12 @@ class VM(object):
 
     def load(self):
         self.push(self.env[self.pop()])
+
+    def range(self):
+        step = self.pop()
+        upper = self.pop()
+        lower = self.pop()
+        self.push(frange(lower, upper, step))
 
     def unquote(self):
         self.run(self.pop())
@@ -214,7 +252,7 @@ class VM(object):
         "max":       max,
         "define":    define,
         "load":      load,
-        "loop":      loop,
+        "range":     range,
         "unquote":   unquote,
         "point":     point,
         "unpack":    unpack,
@@ -246,10 +284,11 @@ window.connect("destroy", Gtk.main_quit)
 def update(widget, cr):
     global env
     alloc = widget.get_allocation()
-    env.update({
+    env = {
         "screen": [alloc.width, alloc.height, "point"],
         "center": ["0.5", "screen", "*"],
-    })
+        "pi": [ str(math.pi) ]
+    }
     vm = VM(cr, env)
     cr.set_source_rgb(0, 0, 0)
     cr.save()
@@ -269,40 +308,59 @@ def insert_point(unused, event):
 da.connect('button-press-event', insert_point)
 
 
-def mainloop():
+def handle_input():
     global prog
     global env
+    inp = raw_input("> ")
+    if inp == ":?":
+        for token in prog:
+            print token
+    elif inp == ":clr":
+        prog = []
+        env = {}
+    elif inp == ":undo":
+        prog.pop()
+    elif inp == ":quit":
+        exit(0)
+    elif inp == ":save":
+        f = open("image.dat", "w")
+        for token in prog:
+            print token
+            print >> f, token
+        f.close()
+    elif inp == ":load":
+        prog = [l.strip() for l in open("image.dat", "r")]
+    elif inp.startswith(":set"):
+        cmd, name, val = inp.split()
+        env[name] = [val]
+        print env
+    else:
+        prog.extend(inp.split())
+        print prog
+
+def mainloop():
     try:
         while True:
-            inp = raw_input("> ")
-            if inp == ":?":
-                for token in prog:
-                    print token
-            elif inp == ":clr":
-                prog = []
-            elif inp == ":undo":
-                prog.pop()
-            elif inp == ":quit":
-                Gtk.main_quit()
-            elif inp == ":save":
-                f = open("image.dat", "w")
-                for token in prog:
-                    print token
-                    print >> f, token
-                f.close()
-            elif inp == ":load":
-                prog = [l.strip() for l in open("image.dat", "r")]
-            elif inp.startswith(":set"):
-                cmd, name, val = inp.split()
-                env[name] = [val]
-                print env
-            else:
-                prog.extend(inp.split())
+            handle_input()
             da.queue_draw()
     finally:
         Gtk.main_quit()
 
-repl = threading.Thread(target=mainloop)
-repl.daemon = True
-repl.start()
-Gtk.main()
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "gui":
+        repl = threading.Thread(target=mainloop)
+        repl.daemon = True
+        repl.start()
+        Gtk.main()
+    else:
+        while True:
+            handle_input()
+            env = {
+                "screen": [200, 200, "point"],
+                "center": [100, 100, "point"]
+            }
+            vm = VM(None, env, trace=True)
+            vm.run(prog)

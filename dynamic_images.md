@@ -744,3 +744,70 @@ the common operations.
 
  = Do we allow editing that
 
+# editor.py
+
+The file `scripts/editor.py` is a sandbox for exploring these ideas. I
+threw together a quick-and-dirty stack vm, with the usual opcodes plus
+some that map more-or-less to the cairo API. There's a minimal GUI
+that excutes the vm for the window's cairo context on every paint
+event. You mainly type commands on the console, and each new command
+is concatenated to the current program (there are some metacommands
+that allow loading, saving, and undo-only editing of the program).
+
+
+This allows for some pretty rapid prototyping.
+
+## Obevservations
+
+One problem with binding a stack-based languge directly to the gui is
+that the order of operations matters, but it's hard to keep track
+mentally, especially the inner terms of a complicated operation spread
+the arguments far apart on the stack. Tree-based editing, or at least
+prefix command editing is easier to cope with at some level.
+
+With any editory, you have the document language, and the meta
+language for editing the document supplied by the editor. There's a
+push-and-pull between the two, since the structure of the document
+determines to a large degree which operations are easy to support
+within the editor.
+
+Using a concatenative document language does simplify the editor's
+meta language: you have simple operations like append, and undo is
+simply deleting the last operation. Possibly "insert" and
+"delete". It's a pretty foreign model for images, however. It's also
+pretty natural to incorporate parametrs and arithmetic into your
+drawing, since you're already mainly using the keyboard.
+
+Admittedly I'm kind thashing around a bit. Trying to do several things
+simulataneously that might really be separate concerns:
+- define a format for dynamic image files
+- create an authoring tool for said files
+- experiment novel UI concepts
+- learn about stack languages
+
+What I'm thinking is that the stack-based approach will work well for
+the final image format, i.e. what we directly display. I think in
+order to minimize the possibility of breaking changes, this format
+should hew as close to the cairo api as possible. I experimented with
+re-wrapping API in terms of "points", rather than discrete x and y
+coordinates. It has some merrit, but that's not really how cairo
+works. It would be tedious but straight-forward to simply map an
+opcode to every routine in cairo (being careful to be consistent about
+the ordering of x's and y's, but otherwise treating them identically
+to the C api. Being able to stabilize this format early would be
+beneficial, because it would let me continue to develop the rest of
+udashboard while I explore the right model for authoring. Working
+directly with postorder notation is cumbersome, but not
+impossible. One thing I will leave out of this low-level format is
+lexical binding. We need some form of flow control, becuase otherwise
+there's to handle iteration beyond a single instruction, which means
+we need a way to represent lists of instructions. Getting this right
+even in the prototype has been one of the chanllenges.
+
+Something else that occured to me is that the cairo API is stateful,
+so by wrapping it directly, you end up with a stateful UI. This argues
+for an intermediate representation that can be easily converted to the
+stack-based one. This is where I might want a tree-based document,
+since that can be trivially converted to post-order.
+
+
