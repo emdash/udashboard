@@ -1,3 +1,36 @@
+# uDashBoard: featherweight dashboard application.
+#
+# Copyright (C) 2019  Brandon Lewis
+#
+# This program is free software: you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this program.  If not, see
+# <https://www.gnu.org/licenses/>.
+
+"""
+Prototype Image Editor and Renderer
+
+This is also the prototype virtual machine. It's to test the idea that
+a model of directly editing the bytecode of a concatenated language.
+
+The basic idea is as follows:
+- Image data is stored as the bytecode for a stack-based vm.
+- For reach frame, the screen is cleared, and the entire program
+  re-run.
+- All operations on the image are performed as updates to the
+  bytecode, which is subsequently re-run.
+
+"""
+
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_foreign("cairo")
@@ -284,14 +317,16 @@ window.connect("destroy", Gtk.main_quit)
 def update(widget, cr):
     global env
     alloc = widget.get_allocation()
+    ox, oy = (alloc.width / 2, alloc.height / 2)
     env = {
         "screen": [alloc.width, alloc.height, "point"],
-        "center": ["0.5", "screen", "*"],
+        "origin": [ox, oy, "point"],
         "pi": [ str(math.pi) ]
     }
     vm = VM(cr, env)
-    cr.set_source_rgb(0, 0, 0)
     cr.save()
+    cr.set_source_rgb(0, 0, 0)
+    cr.translate(ox, oy)
     vm.run(prog)
     cr.restore()
     cr.move_to(0, alloc.height - 5)
@@ -360,7 +395,7 @@ if __name__ == "__main__":
             handle_input()
             env = {
                 "screen": [200, 200, "point"],
-                "center": [100, 100, "point"]
+                "origin": [0, 0, "point"]
             }
             vm = VM(None, env, trace=True)
             vm.run(prog)
