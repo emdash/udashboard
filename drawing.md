@@ -382,3 +382,293 @@ during development and to render preview thumbnails for the image.
 
 When we invoke the equivalent of `[` in the GUI, the editor switches
 modes to indicate we are editing a quoted element.
+
+# Thoughts 5/21/2019
+
+So.... I still like the idea of a using a postfix notation as the
+input language for a graphical editor. But I am not sure about
+operating directly on the vm bytecode. I want to support a workflow
+that's like:
+
+- make a shape you like
+- convert the shape to a proceedure
+- add a list parameter
+- map the shape over the list parameter
+
+Drawing shapes should be something like:
+
+- click somewhere on the canvas
+- see feedback region (showing whether we're drawing centered or
+  cornered)
+- click again to commit the bounding box
+- invoke a shape command (rect, ellipse, arc, lineto)
+- select a color from the pallet (pushes onto stack)
+- invoke stroke (applied to all objects on stack)
+
+## Handling user interaction
+
+It's a subtly different model from the way cairo and postscript
+actually work. Subsequent operations often influence the *preceeding*
+drawings.
+
+I am building an editor for immediate mode graphics! I am creating the
+*illusion* of retained mode by repainting the entire image after each
+change to the document. I'm kinda committed to that approach anyway,
+because of double-buffering.
+
+I want to avoid the retained-mode model. The state implicit in the
+cairo context is more compact, and we don't need to adopt any crazy
+"diffing" strategy to minimize changes to the context state. It is
+also more "composable". I don't have to invoke a fill or stroke
+operation, and it's a useful optimization to "batch" fills / strokes.
+Moreover, if we want a "private" context state, we can always use
+save/restore.
+
+The difficulty is in mapping a pixel on the canvas back to the set of
+operations that have touched that pixel. Only fill, stroke, and text
+commands actually alter the canvas, but the real information is in the
+path commands that preceed the call to fill or stroke. If I want to
+change the color of an object, for example, I have to find the most
+stroke recent or fill operation that produced it and insert code to
+change the color. Once I do, it may affect the color of other items on
+the page, if they were all stroked together. Also, if there was a
+previous set_source command still present, but effectively dead.
+
+Still, it may be possible to do a decent with some simple bookkeeping,
+perhaps followed by a pass to eliminate "dead" instructions, like
+redundtant calls to set_source. The basic idea is that we instrument
+the VM in the editor to save a copy of the current path prior to a
+fill or stroke, along with the program counter. Now we can hit-test
+the path and determine which instruction produced the shape. We would
+then move the "cursor" to that point in the program, and subsequent
+commands would now operate before the stroke instruction. This both
+modifications to the path and changes to the canvas state.
+
+One feature that is often lacking in GUI editors is "batch operations"
+on objects. Gui editors are usually smart enough to display a
+properties dialog when the selection contains a single object. But
+when the selection contains multiple objects, even objects of the same
+type, they throw up their hands and display a "general" properties
+pane that doesn't let you change the property you want. You're forced
+to repeat the same operation on each object, even when the property
+you want to modify is common to all objects in the selection. That is
+something I want to support, but I'm not sure it naturally falls out
+of my byte-code oriented approach. An operation on a disjoint set of
+objects would essentiall be a multi-line insert operation. I can think
+of ways to do that, but it definitely sounds complicated, and would
+have to be limited to changes to the context state, rather than
+changes to the path.
+
+Another thing that's not entirely clear is how you would handle
+something as mundane as click-and-drag to move an object. A naive way
+would be to simply insert a "transform" prior to the start of the
+subpath (with matching save / restore), and sometimes this will even
+be what you want. But in other cases what you really want is to change
+the path itself. I'm not yet sure how you would automatically know
+which the user wants, and what the best way to distinguish between the
+two is. There may or may not even be a visual difference. But there
+will be a structural difference, and that's the kind of thing I care
+about. You get different behaviors under scaling and mutating
+parameters with the one vs the other. I can handle things like "scale
+independent strokes" implicitly by being careful about which I choose,
+and for right now I believe that this is the best way to handle a
+feature like that.
+
+The clue that this style of editor may truly be a Bad Idea is that
+inserting code at aribtrary locations will alter the stack layout in
+ways that are hard to predict. One way to at least prevent breaking
+the code completely is to insert operations with preceeding "dummy"
+arguments, that later get "backfilled". On the other hand, if the user
+begins by inserting an operand, we append a dummy "drop" operation
+which gets "promoted" to the next opcode the user enters (at which
+point the arguments may need to be reconciled). I doubt I will get
+this right on the first try. I may have to introduce a "top value"
+which all instructions will accept without crashing the vm. As long as
+they do something sane when they encounter it, I only need to be
+concered with matching the airty of arguments. Also having a
+distinctive marker in the code would make it easier to scan for. Stray
+"default" values remaining in the file would highlight bungled edit
+operations.
+
+## On consistency
+
+Graphic coordinate systems for image formats should *always* be with
+respect to the center. Not the bottom left, and certainly not the
+top-left (which inverts the usual meaning of the y axis leading to
+no. end of problems). If you're designing a new image file format, or
+a new graphics library, keep this in mind. Even if it's not the
+default mechanism, conceive of, and think of your work as being with
+respect to the center of its own coordinates. This is something I will
+be opinionated about for the rest of my life. I never really thought
+it mattered before, but I had an epiphany last night: I could dispense
+with a lot of math, and pointless writing and calling of routines like
+`center`.
+
+I understand why computer cordinates are y-flipped, with the origin in
+the top-left corner... it has to do with how analog TV worked, and
+early computers with unsigned counters, etc, etc. It's an excellent
+implementation strategy, but it poisoned the brains of computer
+programmers after the 1960s. The vector display used on the PDP1 had
+the origin at the center, which was just happened convenient for that
+particular hardware (it was a radar screen). But it was also
+mathematically superior. This whole project is about being able to
+arbitrarily combine images that are themselves dynamic, and this is
+the right way to think about doing that.
+
+Advantages of centered coordinate system:
+ - image will be concentric to screen (or parent container) by default.
+ - The default effect of rotation rotates the image about its own
+   center, not some arbitrary corner (of the drawing as a whole).
+   - 99.99% of the time this is what you mean by rotation.
+   - even when you don't, it's probably some other point -- almost
+     never one particular corner.
+   - vector drawing programs got this completely wrong for decades.
+ - even if you do want to create an offset or asymetric image, it's
+   still easier to think in the context of being "shifted" from its
+   natural center (think how the mouse cursor points "toward" the
+   actual cursor coordinates, rather than being centered on them).
+ - layout of objects gets easier, since 99% of the time you want to
+   align the *centers* of objects, not the *edges*.
+   - an object's position always refers to it's "visual center".
+   - if you can tell the difference between center and edge alignment,
+     it's almost always centre alignment you want.
+   - And when you don't, it's usually better to draw the object itself
+     as offcenter, since it's probably what feels "natural" for the object.
+   - we don't need the object's dimensions just to center it. Only to
+     space it.
+     - most of the transforms in an image are about keeping things in
+       the relative coordinate system of parent elements.
+  - aids with aligning proceedural and raster patterns (gradients,
+    clipart). The pattern coordinates are the image coordinates by
+    default, proceedural patterns are often symmetrical around the
+    origin.
+
+The previous epiphany about coordinate systems made me wonder if I
+shouldn't strive for resolution inedpendence. I have previously
+thought of this as something mainly for print publishers, but I see
+now resolution independence the only way to reach the broadest
+possible audience. It is also the best way to future-proof my work
+against changing display standards, hardware, etc, making sure all
+this eventually pays off somehow.
+
+I normally am a geek about getting perfect 1-pixel hairlines in the
+device pixel space. This is becauese certain effects, like the "3D"
+beveling of edges work best when the hilight / shadows are exactly one
+pixel. Other times the best way to cover up certain visual artifacts
+is with a 1-pixel hairline. But these cases are rare, and I can just
+have way to explicitly set a hairline, rather than implicitly relying
+on it as a side-effect of the particular coordinates system. And
+actually, when it comes to things like "scale independent strokes",
+they actually have *more* meaning when your're working in physical
+units. The whole point is to have a line of "reliable" thickness
+regardless of the display size, and there will be too many unpleasant
+surprises if the coordinates are arbitrarily based on screen
+resolution. Just look at what happened to windows on Retina. Even
+pixel art, which has become an artistic style in its own right, isn't
+really about pixels any more. It's more about "drawing with a limited
+number of little squares and and even more limited palette." So I am
+adopting the point mm as the official unit size. Either that or the
+point. I'm kinda loathe to use such an archaic unit, but it has
+advantages for working with text in different fonts. I think that most
+of the layout decisions are actually driven by the placement of text
+elements. It's also what poscript natively uses. But working in mm
+would benefit people with... you know, rulers and tape measures. Of
+course you're always just an affine transformation away from whatever
+crazy coordinate system you want to use. The important thing is just
+to define *something* as the nominal units so users can know how to
+convert to their preferred units. I guess there might be some
+arbitrary choices that might lead to fewer rounding errors or some
+such nonsense. From that perspective, multiplying by 25.4 seems better
+than dividing by 25.4, which is really multiplying by whatever 1/25.4
+comes out to in IEEE floats whenever matrices are involved. I could
+just piss absolutely everyone off and say the default units are
+inches :Px
+
+I think I may have to stop short of color managment if only because I
+think I've piled on enough implementation headaches: I gotta make sure
+to set up the right transform matrix by default, and figure out how to
+get DPI information out of libdrm (and provide a way to manually
+override and calibrate, because monitors are liars). I also have to go
+and re-examine *all the graphics code I intend to keep*. Also users
+don't, as a rule, pay so much attention to color correctness, and it's
+a much easier thing to fix after the fact. For the time being I will
+just work with the "websafe" palettes that people have come up with
+that tend to look okay on most screens.
+
+## Splines
+
+I've been reading about Bezier curves and splines. Not because I want
+to re-implement them, but because I want to understand them
+better. Like one thing I didn't realize is that translating a bezier's
+control points performs the same transformation on the curve. I guess
+that might seem obvious, but I didn't *know* that for a fact. What
+other useful facts about them am I unaware of? Also, I am interested
+in hardware acceleration, and the least invasive approach of doing
+that would be to simply figure out how to render vector graphics
+directly on the GPU. Contrary to what some people have claimed, there
+*are* techniques for doing this, they just aren't widely known. Not
+even bleeding-edge, but I'd be doing my own impelementation most
+likely, either contributed upstream to cairo, or else as a stand-alone
+project.
+
+There might also be patent concerns in some cases, and hardware
+limitations that make the whole thing a wash in terms of
+performance. But it seems like an interesting topic, and would be a
+real contribution to an open source project I have gotten a lot of
+miles out of. And it could be a game-changer for cairo if it had fast
+accelerated rendering out of the box.
+
+Anyway, in order to do that I have to bite the bullet and do some
+math. At least think about these objects in a deep way. Maybe
+implement a toy rasterizer to get a feel for it. Then think about how
+the gpu could be used to speed up the rendering. I wonder if newer
+APIs that expose the hardware more directly (Vulkan, OpenCL) are
+actually better for this purpose, or if the people who claim it
+doesn't scale to the GPU have just not looked at it closely
+enough. For example, subdividing sounds like it could be done on a
+geometry shader, and I've seen some tesselation-based approaches that,
+while not exactly efficient in terms of number of polygons, at least
+seem to run well in practice. The thing to keep in mind is that GPUs
+can render just mind-boggling numbers of triangles, and vector
+graphics tend to be rather sparse. And, finally, that a lot of vector
+graphics are polygonal anyway, and optimizing those leaves more time
+for the smooth curves in your file.
+
+
+## The rabbithole
+
+Let me acknowledge just how deep I've gotten. I started by wanting to
+do an onboard dash, which led me to buildroot. Meanwhile the the
+RaceCapture app was too slow for my hardware, so I decieded to write
+my on application. But to do that I decided I needed to invent a file
+format, so I could configure the dash. And now I'm looking at writing
+tooling for a file format I have yet to settle on. And there's still
+work to do on the data processing side, on the actual hardware
+installation, etc, etc. The code I already have would work for the
+time being,
+
+But what I realized is that I've wanted to write my own vector drawing
+program for a long time. That's because most of them have frustrating
+limitations. They focus either on exact mechanical drawing, or totally
+free-hand artistic drawing. I have yet to see an application that
+really does a good job of mixing the two.  I *want* that drawing
+program.
+
+I have also have not seen one that really makes repetetive or
+parametric elements intuitive. The frustrating thing about drawing by
+hand is that drawing directly is that drawings are often structured or
+repetitive, but the facilities most packages provide for replicating
+elements are limite to a small number of basic patterns, with no
+support for defining custom patterns, and usually pretty clunky UI
+supporting the feature. If they offer anything at all. Oftentimes they
+resemble more of a "macro" function that is difficult to edit or
+change afterward. It's often easier just to manually position the
+objects, in some cases calculating and entering coordinates by
+hand. When you have all this computing power! In may cases it's
+*easier* to edit the underlying svg file than to rely on the gui. I
+think once or twice I may have even edited a PostScript file in a text
+editor.
+
+So maybe this isn't about the Palatov anymore. Maybe this is about
+finding something sufficiently challenging to work on. Or maybe it's
+about scrating that personal itch. Or maybe I'm just scatterbrained.
