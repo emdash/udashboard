@@ -226,15 +226,17 @@ class VM(object):
         self.target.arc(x, y, radius, 0, 2 * math.pi)
 
     def rectangle(self):
-        x, y, w, h = self.pop()
-        self.target.rectangle(x, y, w, h)
+        h = self.pop()
+        w = self.pop()
+        (x, y) = self.pop()
+        self.target.rectangle(x - w * 0.5, y - h * 0.5, w, h)
 
     def moveto(self):
-        x, y = self.pop()
+        (x, y) = self.pop()
         self.target.move_to(x, y)
 
     def lineto(self):
-        x, y = self.pop()
+        (x, y) = self.pop()
         self.target.line_to(x, y)
 
     def stroke(self):
@@ -250,8 +252,7 @@ class VM(object):
         self.target.restore()
 
     def translate(self):
-        y = self.pop()
-        x = self.pop()
+        (x, y) = self.pop()
         self.target.translate(x, y)
 
     def rotate(self):
