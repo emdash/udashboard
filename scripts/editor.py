@@ -42,40 +42,35 @@ import math
 import threading
 
 class VMError(Exception): pass
+class LexError(Exception): pass
 
 class Point(object):
 
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
+    """Reasonably terse 2D Point class."""
 
-    def __add__(self, o):
-        return Point(self.x + o.x, self.y + o.y)
+    def __init__(self, x, y): self.x = x ; self.y = y
+    def __len__(self):        return math.sqrt(self.x ** 2 + self.y ** 2)
+    def __cmp__(self, o):     return cmp((self.x, self.y), (o.x, o.y))
+    def __repr__(self):       return "(%g, %g)" % (self.x, self.y)
+    def __iter__(self):       yield  self.x ; yield self.y
 
-    def __sub__(self, o):
-        return Point(self.x - o.x, self.y - o.y)
+    def binop(func):
+        def impl(self, x):
+            o = o if isinstance(o, Point) else Point(o, o)
+            return Point(func(self.x, o.x), func(self.y, o.y))
+        return impl
 
-    def __mul__(self, s):
-        return Point(self.x * s, self.y * s)
-
-    def __rmul__(self, s):
-        return Point(self.x * s, self.y * s)
-
-    def __cmp__(self, o):
-        return cmp((self.x, self.y), (o.x, o.y))
-
-    def __repr__(self):
-        return "(%g, %g)" % (self.x, self.y)
-
-    def __len__(self):
-        return math.sqrt(self.x ** 2 + self.y ** 2)
-
-    def __iter__(self):
-        yield self.x
-        yield self.y
+    __add__  = binop(lambda a, b: a + b)
+    __sub__  = binop(lambda a, b: a - b)
+    __mul__  = binop(lambda a, b: a * b)
+    __div__  = binop(lambda a, b: a / b)
+    __rsub__ = binop(lambda a, b: b - a)
+    __rmul__ = binop(lambda a, b: b * a)
+    __rdiv__ = binop(lambda a, b: b / a)
 
 
 def frange(lower, upper, step):
+    """Like xrange, but for floats."""
     accum = lower
     while accum < upper:
         yield accum
@@ -83,6 +78,7 @@ def frange(lower, upper, step):
 
 
 class VM(object):
+    """Executes bytecode on the given cairo context."""
 
     def __init__(self, target, env={}, trace=False):
         self.stack = []
@@ -132,7 +128,7 @@ class VM(object):
         if self.lists:
             if self.trace:
                 print " LIST ",
-            self.lists[-1].append(self.parse(token))
+            self.lists[-1].append(token)
         elif token in self.opcodes:
             if self.trace:
                 print " OPCD ",
@@ -144,16 +140,7 @@ class VM(object):
         else:
             if self.trace:
                 print " PUSH ",
-            self.push(self.parse(token))
-
-    def parse(self, token):
-        try:
-            return int(token)
-        except:
-            try:
-                return float(token)
-            except:
-                return token
+            self.push(token)
 
     def push(self, val):
         self.stack.insert(0, val)
@@ -307,47 +294,94 @@ class VM(object):
         "!":         debug
     }
 
-prog = []
-env = {}
-window = Gtk.Window()
-da = Gtk.DrawingArea()
-da.set_events(Gdk.EventMask.ALL_EVENTS_MASK)
-window.add(da)
-window.show_all()
-window.connect("destroy", Gtk.main_quit)
-def update(widget, cr):
-    global env
-    alloc = widget.get_allocation()
-    ox, oy = (alloc.width / 2, alloc.height / 2)
-    env = {
-        "screen": [alloc.width, alloc.height, "point"],
-        "origin": [ox, oy, "point"],
-        "pi": [ str(math.pi) ]
-    }
-    vm = VM(cr, env)
-    cr.save()
-    cr.set_source_rgb(0, 0, 0)
-    cr.translate(ox, oy)
-    vm.run(prog)
-    cr.restore()
-    cr.move_to(0, alloc.height - 5)
-    cr.show_text(repr(vm.stack))
-da.connect('draw', update)
-
-def printargs(*args):
-    print args
-
-def insert_point(unused, event):
-    prog.extend([event.x, event.y, "point"])
-    da.queue_draw()
-
-da.connect('button-press-event', insert_point)
 
 
-def handle_input():
-    global prog
-    global env
-    inp = raw_input("> ")
+class Tokenizer(object):
+    """Separate chars into tokens."""
+
+    space = " \t\r\n"
+    numeric = "-.0123456789"
+    digits = numeric[2:]
+    separators = "[]"
+
+    def __init__(self):
+        self.token = ""
+        self.state = "start"
+
+    def skip(self, state):
+        self.state = state
+
+    def accept(self, char, state):
+        self.token += char
+        self.state = state
+
+    def emit(self, ctor=lambda x: x):
+        print "emit:", repr(self.token)
+        ret = self.token
+        self.token = ""
+        self.state = "start"
+        if ret:
+            return ctor(ret)
+
+    def handle(self, char):
+        if self.state == "start":
+            if char in self.space:
+                return self.emit()
+            elif char in self.numeric:
+                self.accept(char, "number")
+            elif char in self.separators:
+                ret = self.emit()
+                self.accept(char, "separator")
+                return ret
+            else:
+                self.accept(char, "word")
+        elif self.state == "space":
+            if char not in self.space:
+                self.skip("start")
+        elif self.state == "separator":
+            if char in self.separators:
+                ret = self.emit()
+                self.accept(char, "separator")
+                return ret
+            elif char in self.space:
+                self.emit()
+            else:
+                self.accept(char, "start")
+        elif self.state == "number":
+            if char not in self.digits:
+                if char == ".":
+                    self.accept(char, "float")
+                elif char in self.space:
+                    return self.emit(int)
+                elif char in self.separators:
+                    ret = self.emit(int)
+                    self.accept(char, "start")
+                    return ret
+                else:
+                    raise LexError("Unexpected " + repr(char))
+            else:
+                self.accept(char, "number")
+        elif self.state == "word":
+            if char in self.space:
+                return self.emit()
+            else:
+                self.accept(char, "word")
+        else:
+            raise LexError("Invalid state: " + repr(self.state))
+
+class Editor(object):
+
+    def __init___(self):
+        self.prog = []
+        self.tokenizer = Tokenizer()
+
+    def insert_point(unused, event):
+        prog.extend([event.x, event.y, "point"])
+        da.queue_draw()
+
+
+def handle_input(inp):
+    """Process the given string as a command."""
     if inp == ":?":
         for token in prog:
             print token
@@ -371,16 +405,76 @@ def handle_input():
         env[name] = [val]
         print env
     else:
-        prog.extend(inp.split())
-        print prog
+        t = Tokenizer()
+        tokens = []
+        for char in inp:
+            token = t.handle(char)
+            if token is not None:
+                tokens.append(token)
+        print tokens, t.token
 
 def mainloop():
     try:
         while True:
-            handle_input()
+            handle_input(raw_input("> "))
             da.queue_draw()
     finally:
         Gtk.main_quit()
+
+
+def gui():
+    def dpi(widget):
+        """Return the dpi of the current monitor as a Point."""
+        s = widget.get_screen()
+        m = s.get_monitor_at_window(window.get_window())
+        geom = s.get_monitor_geometry(m)
+        mm = Point(s.get_monitor_width_mm(m),
+                   s.get_monitor_height_mm(m))
+        size = Point(float(geom.width), float(geom.height))
+        return size / mm
+
+    def defenv(screen, origin):
+        """Prepare the standard VM Environment."""
+        return {"screen": [screen], "origin": [origin], "pi": [math.pi]}
+
+    def draw(widget, cr):
+        # get window / screen geometry
+        alloc = widget.get_allocation()
+
+        # prepare the transform matrix
+        cr.save()
+        cr.set_source_rgb(0, 0, 0)
+        cr.translate(ox, oy)
+        cr.scale(w / wmm, h / hmm)
+
+        # create a new vm instance with the window as the target.
+        vm = VM(cr, defenv(screen, origin))
+
+        # set default context state
+        cr.set_line_width(0.5)
+
+        # excute the program
+        vm.run(self.prog)
+        cr.restore()
+
+        # Draw UI layer, cmdline, and debug info.
+        cr.move_to(0, alloc.height - 5)
+        cr.show_text(repr(vm.stack))
+
+    editor = Editor()
+
+    window = Gtk.Window()
+    da = Gtk.DrawingArea()
+    da.set_events(Gdk.EventMask.ALL_EVENTS_MASK)
+
+    window.add(da)
+    window.show_all()
+    window.connect("destroy", Gtk.main_quit)
+
+    da.connect('draw', draw)
+    da.connect(
+        'button-press-event',
+        editor.insert_point(event.x, event.y))
 
 
 
@@ -393,7 +487,9 @@ if __name__ == "__main__":
         Gtk.main()
     else:
         while True:
-            handle_input()
+            print handle_input(raw_input("> "))
+
+            continue
             env = {
                 "screen": [200, 200, "point"],
                 "origin": [0, 0, "point"]
