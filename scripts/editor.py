@@ -57,7 +57,7 @@ class Point(object):
 
     def binop(func):
         def impl(self, x):
-            o = o if isinstance(o, Point) else Point(o, o)
+            o = x if isinstance(x, Point) else Point(x, x)
             return Point(func(self.x, o.x), func(self.y, o.y))
         return impl
 
@@ -307,9 +307,9 @@ class Tokenizer(object):
     numeric = "-.0123456789"
     digits = numeric[2:]
     operators = "[]"
-    log = False
+    log = True
 
-    def __init__(self, chars, output):
+    def __init__(self, chars, output, update_cb):
         self.token = ""
         self.chars = chars
         self.output = output
@@ -318,6 +318,7 @@ class Tokenizer(object):
 
         # if we switch to python 3, rewrite this as async generator,
         # then we don't need this threaded model.
+        self.update_cb = update_cb
         self.thread = threading.Thread(target=self._process)
         self.thread.daemon = True
         self.thread.start()
@@ -346,10 +347,17 @@ class Tokenizer(object):
                 self.output.put(self.token)
         finally:
             self.token = ""
+            GObject.idle_add(self.update_cb)
 
     def accept(self, char):
         self.trace("accept:", char)
         self.token += char
+        GObject.idle_add(self.update_cb)
+
+    def unaccept(self, char):
+        self.trace("unaccept:", char)
+        if self.token:
+            self.token = token[:-1]
 
     def reject(self, char):
         assert char is not None
@@ -384,6 +392,8 @@ class Tokenizer(object):
             char = self.nextchar()
             if char in self.space:
                 self.skip(lambda c: c in self.space)
+            elif char == chr(127):
+                self.unaccept(char)
             else:
                 self.accept(char)
                 self.keep(lambda c: c not in self.space)
@@ -391,13 +401,57 @@ class Tokenizer(object):
 
 class Editor(object):
 
-    def __init___(self):
-        self.prog = []
-        self.tokenizer = Tokenizer()
+    char_map = {
+        Gdk.KEY_BackSpace: chr(127),
+    }
 
-    def insert_point(unused, event):
-        prog.extend([event.x, event.y, "point"])
-        da.queue_draw()
+    def __init__(self, update_cb):
+        self.prog = []
+        self.char_queue = Queue()
+        self.token_queue = Queue()
+        self.tokenizer = Tokenizer(
+            self.char_queue,
+            self.token_queue,
+            self.update_token
+        )
+        self.cursor = (0, 0)
+        self.stack = None
+        self.update_cb = update_cb
+        self.token = ""
+        self.reader = threading.Thread(target=self.read)
+        self.reader.daemon = True
+        self.reader.start()
+
+    def update_token(self):
+        self.token = self.tokenizer.token
+        self.update_cb()
+
+    def read(self):
+        while True:
+            GObject.idle_add(self.insert, self.token_queue.get())
+            print "got"
+
+    def insert(self, token):
+        self.prog.append(token)
+        self.update_cb()
+
+    def run(self, cr, env):
+        # create a new vm instance with the window as the target.
+        try:
+            vm = VM(cr, env)
+            vm.run(self.prog)
+            self.stack = vm.stack
+        except VMError as e:
+            self.stack = e.message
+
+    def handle_key(self, event):
+        key = event.keyval
+        print key
+        if 0 <= key <= 255:
+            self.char_queue.put(chr(key))
+        else:
+            if key in self.char_map:
+                self.char_queue.put(self.char_map[key])
 
 
 def handle_input(inp):
@@ -427,14 +481,6 @@ def handle_input(inp):
     else:
         print Tokenizer().tokenize(inp)
 
-def mainloop():
-    try:
-        while True:
-            handle_input(raw_input("> "))
-            da.queue_draw()
-    finally:
-        Gtk.main_quit()
-
 
 def gui():
     def dpi(widget):
@@ -449,45 +495,55 @@ def gui():
 
     def defenv(screen, origin):
         """Prepare the standard VM Environment."""
-        return {"screen": [screen], "origin": [origin], "pi": [math.pi]}
+        return {
+            "screen": [screen],
+            "origin": [origin],
+            "pi": [math.pi]
+        }
 
     def draw(widget, cr):
         # get window / screen geometry
         alloc = widget.get_allocation()
+        screen = Point(alloc.width, alloc.height)
+        origin = screen * 0.5
+        scale = dpi(widget)
 
         # prepare the transform matrix
         cr.save()
         cr.set_source_rgb(0, 0, 0)
-        cr.translate(ox, oy)
-        cr.scale(w / wmm, h / hmm)
-
-        # create a new vm instance with the window as the target.
-        vm = VM(cr, defenv(screen, origin))
+        cr.translate(origin.x, origin.y)
+        cr.scale(scale.x, scale.y)
 
         # set default context state
         cr.set_line_width(0.5)
 
         # excute the program
-        vm.run(self.prog)
+        editor.run(cr, defenv(screen, origin))
         cr.restore()
 
         # Draw UI layer, cmdline, and debug info.
         cr.move_to(0, alloc.height - 5)
-        cr.show_text(repr(vm.stack))
+        cr.show_text(repr(editor.stack))
+        cr.move_to(alloc.width - 100, alloc.height - 5)
+        cr.show_text(repr(editor.token))
 
-    eventQ = Queue.Queue()
-    tokenQ = Queue.Queue()
-    editor = Editor()
+    def key_press(widget, event):
+        editor.handle_key(event)
 
+    def update():
+        da.queue_draw()
+
+
+    editor = Editor(update)
     window = Gtk.Window()
     da = Gtk.DrawingArea()
     da.set_events(Gdk.EventMask.ALL_EVENTS_MASK)
-
     window.add(da)
     window.show_all()
     window.connect("destroy", Gtk.main_quit)
-
     da.connect('draw', draw)
+    window.connect('key-press-event', key_press)
+    Gtk.main()
 
 def test():
     def tokenizer_test(inp, expected):
@@ -514,15 +570,14 @@ def test():
     tokenizer_test("2.718 3.14 pi * ^", [2.718, 3.14, 'pi', '*', '^'])
     tokenizer_test("- -1 0 1 -2.718",   ['-', -1, 0, 1, -2.718])
 
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) >1 and sys.argv[1] == "test":
         test()
     elif len(sys.argv) > 1 and sys.argv[1] == "gui":
-        repl = threading.Thread(target=mainloop)
-        repl.daemon = True
-        repl.start()
-        Gtk.main()
+        print "GUI"
+        gui()
     else:
         while True:
             print handle_input(raw_input("> "))
