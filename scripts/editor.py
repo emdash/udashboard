@@ -306,48 +306,43 @@ class Tokenizer(object):
     numeric = "-.0123456789"
     digits = numeric[2:]
     operators = "[]"
-    log = True
+    log = False
 
-    def __init__(self):
+    def __init__(self, chars, output):
         self.token = ""
+        self.chars = list(chars)
         self.buffer = []
-        self.output = []
+        self.output = output
+        self.eof = False
 
     def trace(self, *args):
         if self.log:
             print args[0], " ".join((repr(arg) for arg in args[1:]))
 
-    def iterwrap(self, chars):
-        # Make sure chars is an iterator, so we get the right behavior
-        # from nested loops.
-        chars = iter(chars)
-        self.buffer.append(chars.next())
-        done = False
-        while self.buffer:
-            char = self.buffer.pop(0)
-            self.trace("ch:", char, self.buffer, self.token)
-            yield char
-            if not self.buffer and not done:
-                self.trace("consume:")
-                try:
-                    self.buffer.append(chars.next())
-                except StopIteration:
-                    self.buffer.append('\0')
-                    done = True
+    def nextchar(self):
+        if not self.buffer:
+            self.trace("consume:")
+            if self.chars:
+                self.buffer.append(self.chars.pop(0))
+            else:
+                self.buffer.append('\0')
+                self.eof = True
+        char = self.buffer.pop(0)
+        self.trace("ch:", char, self.buffer, self.token)
+        return char
 
-    def is_space(self, x):    return x in self.space
-    def is_operator(self, x): return x in self.operators
-    def is_numeric(self, x):  return x in self.numeric
-    def is_digit(self, x):    return x in self.numeric[2:]
-    def is_lit(self, c):  return lambda x: x == c
-    def is_word(self, x):
-        return not (self.is_space(x) or self.is_operator(x))
-
-    def emit(self, ctor=lambda x: x):
+    def emit(self):
         self.trace("emit:", self.token)
-        if len(self.token):
-            self.output.append(ctor(self.token))
-        self.token = ""
+
+        try:
+            self.output.append(int(self.token))
+        except ValueError:
+            try:
+                self.output.append(float(self.token))
+            except ValueError:
+                self.output.append(self.token)
+        finally:
+            self.token = ""
 
     def accept(self, char):
         self.trace("accept:", char)
@@ -358,17 +353,19 @@ class Tokenizer(object):
         self.trace("reject:", char)
         self.buffer.append(char)
 
-    def skip(self, chars, cond):
+    def skip(self, cond):
         self.trace("skip:")
-        for char in chars:
+        while not self.eof:
+            char = self.nextchar()
             self.trace("sk:", char)
             if not cond(char):
                 self.reject(char)
                 return
 
-    def keep(self, chars, cond, emit=False):
+    def keep(self, cond, emit=False):
         self.trace("keep:")
-        for char in chars:
+        while not self.eof:
+            char = self.nextchar()
             self.trace("kp:", char)
             if cond(char):
                 self.accept(char)
@@ -378,41 +375,16 @@ class Tokenizer(object):
                 self.reject(char)
                 return
 
-    def match(self, trace, char, cond, accept=False, emit=False):
-        self.trace("match-" + trace, char,  accept)
-        if cond(char):
-            if accept: self.accept(char)
-            if emit: self.emit()
-            return True
-        else:
-            return False
-
-    def tokenize(self, chars):
-        self.output = []
+    def tokenize(self):
         self.trace("tokenize:")
-        chars = self.iterwrap(chars)
-        for char in chars:
-            self.trace("*toplevel*:", char, self.token)
-            if self.match("space:", char, self.is_space):
-                self.skip(chars, self.is_space)
-            elif self.match("op:", char, self.is_operator, True, True):
-                self.keep(chars, self.is_operator, True)
-            elif self.match("num:", char, self.is_digit, True):
-                self.keep(chars, self.is_digit)
-                if self.match("float:", chars.next(), self.is_lit('.'), True):
-                    self.keep(chars, self.is_digit)
-                    self.emit(float)
-                else:
-                    self.trace("int:")
-                    self.emit(int)
-            elif char == "\0":
-                break
-            elif self.match("word:", char, self.is_word, True):
-                self.keep(chars, self.is_word)
+        while not self.eof:
+            char = self.nextchar()
+            if char in self.space:
+                self.skip(lambda c: c in self.space)
+            else:
+                self.accept(char)
+                self.keep(lambda c: c not in self.space)
                 self.emit()
-        self.trace("return:", self.output, self.token)
-        return self.output, self.token
-
 
 class Editor(object):
 
@@ -516,17 +488,20 @@ def gui():
         editor.insert_point(event.x, event.y))
 
 def test():
-    def case(inp, expected):
-        assert Tokenizer().tokenize(inp) == expected
+    def tokenizer_test(inp, expected):
+        out = []
+        t = Tokenizer(inp, out)
+        t.tokenize()
+        assert out == expected
 
-    case("foo bar baz",      (["foo", "bar", "baz"], ''))
-    case("a + b * c",        (["a", "+", "b", "*", "c"], ''))
-    case("a    bbbb c dd d", (["a", "bbbb", "c", "dd", "d"], ''))
-    case(" a    bbbb c dd d",(["a", "bbbb", "c", "dd", "d"], ''))
-    case("[0 [1 0 [[]] ] ]",
-         (["[", 0, "[", 1, 0, "[", "[", "]", "]", "]", "]"],
-        ''))
-    case("2.718 3.14 pi * ^", ([2.718, 3.14, 'pi', '*', '^'], ''))
+    tokenizer_test("foo bar baz",       ["foo", "bar", "baz"])
+    tokenizer_test("a + b * c",         ["a", "+", "b", "*", "c"])
+    tokenizer_test("a    bbbb c dd d",  ["a", "bbbb", "c", "dd", "d"])
+    tokenizer_test(" a    bbbb c dd d", ["a", "bbbb", "c", "dd", "d"])
+    tokenizer_test("[ 0 [ 1 0 [ [ ] ] ] ]",
+         ["[", 0, "[", 1, 0, "[", "[", "]", "]", "]", "]"])
+    tokenizer_test("2.718 3.14 pi * ^", [2.718, 3.14, 'pi', '*', '^'])
+    tokenizer_test("- -1 0 1 -2.718",   ['-', -1, 0, 1, -2.718])
 
 if __name__ == "__main__":
     import sys
