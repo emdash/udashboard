@@ -1,4 +1,4 @@
-# Editor Design
+# 5/19/2019 Editor Design
 
 Consider a simple PostScript like stack language which maps onto the
 cairo api:
@@ -672,3 +672,33 @@ editor.
 So maybe this isn't about the Palatov anymore. Maybe this is about
 finding something sufficiently challenging to work on. Or maybe it's
 about scrating that personal itch. Or maybe I'm just scatterbrained.
+
+# 5/23/2019 Update
+
+I've spent way too long trying to write a proper lexer that can be
+called incrementally. It's really pretty straightforward to write an
+iterative lexer that scans tokens in a loop, or recursively.
+
+It's really hard to implement a lexer that is called sequentially, at
+least in python. You have to encode the state explicitly, and it's
+actually really hard to do that. I want that because I want to support
+using the same lexer in "batch mode", via the command line and / or
+unit tests as well as interactively from windowing system
+events. Using coroutines would be pretty natural, and pretty
+efficient, and super flexible: you can call the lexer either with a
+list, or with a "stream" of events that is asynchronously written to.
+
+Python 2's generators can *almost* get you there, but
+it would be nicer with the *yield from* syntax added in python 3, and
+nicer still with the *async generators* new in 3.7.
+
+So now I at least have to consider stopping what I'm doing and
+starting over in at least python 3.5. Or do I? I know I should get
+used to python 3 eventually, and with asyncio, they may finally have
+the secret sauce that brings me into the fold. But.... ugh... i've
+gone down too many rabbit holes already.
+
+But it's worth remembering for the future. I have had the idea for a
+while now that UI programming really needed a fundamentally different
+model than the callback-driven one. I suspect that a future UI
+framework will come along in which everything is done via coroutines.
