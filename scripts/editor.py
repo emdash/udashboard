@@ -40,6 +40,7 @@ from gi.repository import Gdk
 import cairo
 import math
 import threading
+from Queue import Queue
 
 class VMError(Exception): pass
 class LexError(Exception): pass
@@ -310,10 +311,16 @@ class Tokenizer(object):
 
     def __init__(self, chars, output):
         self.token = ""
-        self.chars = list(chars)
-        self.buffer = []
+        self.chars = chars
         self.output = output
+        self.buffer = []
         self.eof = False
+
+        # if we switch to python 3, rewrite this as async generator,
+        # then we don't need this threaded model.
+        self.thread = threading.Thread(target=self._process)
+        self.thread.daemon = True
+        self.thread.start()
 
     def trace(self, *args):
         if self.log:
@@ -322,11 +329,7 @@ class Tokenizer(object):
     def nextchar(self):
         if not self.buffer:
             self.trace("consume:")
-            if self.chars:
-                self.buffer.append(self.chars.pop(0))
-            else:
-                self.buffer.append('\0')
-                self.eof = True
+            self.buffer.append(self.chars.get())
         char = self.buffer.pop(0)
         self.trace("ch:", char, self.buffer, self.token)
         return char
@@ -335,12 +338,12 @@ class Tokenizer(object):
         self.trace("emit:", self.token)
 
         try:
-            self.output.append(int(self.token))
+            self.output.put(int(self.token))
         except ValueError:
             try:
-                self.output.append(float(self.token))
+                self.output.put(float(self.token))
             except ValueError:
-                self.output.append(self.token)
+                self.output.put(self.token)
         finally:
             self.token = ""
 
@@ -375,7 +378,7 @@ class Tokenizer(object):
                 self.reject(char)
                 return
 
-    def tokenize(self):
+    def _process(self):
         self.trace("tokenize:")
         while not self.eof:
             char = self.nextchar()
@@ -472,6 +475,8 @@ def gui():
         cr.move_to(0, alloc.height - 5)
         cr.show_text(repr(vm.stack))
 
+    eventQ = Queue.Queue()
+    tokenQ = Queue.Queue()
     editor = Editor()
 
     window = Gtk.Window()
@@ -483,16 +488,22 @@ def gui():
     window.connect("destroy", Gtk.main_quit)
 
     da.connect('draw', draw)
-    da.connect(
-        'button-press-event',
-        editor.insert_point(event.x, event.y))
 
 def test():
     def tokenizer_test(inp, expected):
-        out = []
-        t = Tokenizer(inp, out)
-        t.tokenize()
-        assert out == expected
+        chars = Queue()
+        out = Queue()
+        t = Tokenizer(chars, out)
+        for char in inp:
+            chars.put(char)
+        chars.put(' ')
+        output = []
+        while not chars.empty():
+            pass
+        while not out.empty():
+            x = out.get()
+            output.append(x)
+        assert output == expected
 
     tokenizer_test("foo bar baz",       ["foo", "bar", "baz"])
     tokenizer_test("a + b * c",         ["a", "+", "b", "*", "c"])
