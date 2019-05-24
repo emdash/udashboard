@@ -295,79 +295,124 @@ class VM(object):
     }
 
 
-
 class Tokenizer(object):
-    """Separate chars into tokens."""
+    """Separate tokens from a stream of characters.
 
-    space = " \t\r\n"
+    Numeric literals are parsed on the fly.
+    All other tokens are returned as strings.
+    """
+
+    space = " \t\r\n\0"
     numeric = "-.0123456789"
     digits = numeric[2:]
-    separators = "[]"
+    operators = "[]"
+    log = True
 
     def __init__(self):
         self.token = ""
-        self.state = "start"
+        self.buffer = []
+        self.output = []
 
-    def skip(self, state):
-        self.state = state
+    def trace(self, *args):
+        if self.log:
+            print args[0], " ".join((repr(arg) for arg in args[1:]))
 
-    def accept(self, char, state):
-        self.token += char
-        self.state = state
+    def iterwrap(self, chars):
+        # Make sure chars is an iterator, so we get the right behavior
+        # from nested loops.
+        chars = iter(chars)
+        self.buffer.append(chars.next())
+        done = False
+        while self.buffer:
+            char = self.buffer.pop(0)
+            self.trace("ch:", char, self.buffer, self.token)
+            yield char
+            if not self.buffer and not done:
+                self.trace("consume:")
+                try:
+                    self.buffer.append(chars.next())
+                except StopIteration:
+                    self.buffer.append('\0')
+                    done = True
+
+    def is_space(self, x):    return x in self.space
+    def is_operator(self, x): return x in self.operators
+    def is_numeric(self, x):  return x in self.numeric
+    def is_digit(self, x):    return x in self.numeric[2:]
+    def is_lit(self, c):  return lambda x: x == c
+    def is_word(self, x):
+        return not (self.is_space(x) or self.is_operator(x))
 
     def emit(self, ctor=lambda x: x):
-        print "emit:", repr(self.token)
-        ret = self.token
+        self.trace("emit:", self.token)
+        if len(self.token):
+            self.output.append(ctor(self.token))
         self.token = ""
-        self.state = "start"
-        if ret:
-            return ctor(ret)
 
-    def handle(self, char):
-        if self.state == "start":
-            if char in self.space:
-                return self.emit()
-            elif char in self.numeric:
-                self.accept(char, "number")
-            elif char in self.separators:
-                ret = self.emit()
-                self.accept(char, "separator")
-                return ret
+    def accept(self, char):
+        self.trace("accept:", char)
+        self.token += char
+
+    def reject(self, char):
+        assert char is not None
+        self.trace("reject:", char)
+        self.buffer.append(char)
+
+    def skip(self, chars, cond):
+        self.trace("skip:")
+        for char in chars:
+            self.trace("sk:", char)
+            if not cond(char):
+                self.reject(char)
+                return
+
+    def keep(self, chars, cond, emit=False):
+        self.trace("keep:")
+        for char in chars:
+            self.trace("kp:", char)
+            if cond(char):
+                self.accept(char)
+                if emit:
+                    self.emit()
             else:
-                self.accept(char, "word")
-        elif self.state == "space":
-            if char not in self.space:
-                self.skip("start")
-        elif self.state == "separator":
-            if char in self.separators:
-                ret = self.emit()
-                self.accept(char, "separator")
-                return ret
-            elif char in self.space:
-                self.emit()
-            else:
-                self.accept(char, "start")
-        elif self.state == "number":
-            if char not in self.digits:
-                if char == ".":
-                    self.accept(char, "float")
-                elif char in self.space:
-                    return self.emit(int)
-                elif char in self.separators:
-                    ret = self.emit(int)
-                    self.accept(char, "start")
-                    return ret
-                else:
-                    raise LexError("Unexpected " + repr(char))
-            else:
-                self.accept(char, "number")
-        elif self.state == "word":
-            if char in self.space:
-                return self.emit()
-            else:
-                self.accept(char, "word")
+                self.reject(char)
+                return
+
+    def match(self, trace, char, cond, accept=False, emit=False):
+        self.trace("match-" + trace, char,  accept)
+        if cond(char):
+            if accept: self.accept(char)
+            if emit: self.emit()
+            return True
         else:
-            raise LexError("Invalid state: " + repr(self.state))
+            return False
+
+    def tokenize(self, chars):
+        self.output = []
+        self.trace("tokenize:")
+        chars = self.iterwrap(chars)
+        for char in chars:
+            self.trace("*toplevel*:", char, self.token)
+            if self.match("space:", char, self.is_space):
+                self.skip(chars, self.is_space)
+            elif self.match("op:", char, self.is_operator, True, True):
+                self.keep(chars, self.is_operator, True)
+            elif self.match("num:", char, self.is_digit, True):
+                self.keep(chars, self.is_digit)
+                if self.match("float:", chars.next(), self.is_lit('.'), True):
+                    self.keep(chars, self.is_digit)
+                    self.emit(float)
+                else:
+                    self.trace("int:")
+                    self.emit(int)
+            elif char == "\0":
+                break
+            elif self.match("word:", char, self.is_word, True):
+                self.keep(chars, self.is_word)
+                self.emit()
+        self.trace("return:", self.output, self.token)
+        return self.output, self.token
+
 
 class Editor(object):
 
@@ -405,13 +450,7 @@ def handle_input(inp):
         env[name] = [val]
         print env
     else:
-        t = Tokenizer()
-        tokens = []
-        for char in inp:
-            token = t.handle(char)
-            if token is not None:
-                tokens.append(token)
-        print tokens, t.token
+        print Tokenizer().tokenize(inp)
 
 def mainloop():
     try:
@@ -476,11 +515,24 @@ def gui():
         'button-press-event',
         editor.insert_point(event.x, event.y))
 
+def test():
+    def case(inp, expected):
+        assert Tokenizer().tokenize(inp) == expected
 
+    case("foo bar baz",      (["foo", "bar", "baz"], ''))
+    case("a + b * c",        (["a", "+", "b", "*", "c"], ''))
+    case("a    bbbb c dd d", (["a", "bbbb", "c", "dd", "d"], ''))
+    case(" a    bbbb c dd d",(["a", "bbbb", "c", "dd", "d"], ''))
+    case("[0 [1 0 [[]] ] ]",
+         (["[", 0, "[", 1, 0, "[", "[", "]", "]", "]", "]"],
+        ''))
+    case("2.718 3.14 pi * ^", ([2.718, 3.14, 'pi', '*', '^'], ''))
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "gui":
+    if len(sys.argv) >1 and sys.argv[1] == "test":
+        test()
+    elif len(sys.argv) > 1 and sys.argv[1] == "gui":
         repl = threading.Thread(target=mainloop)
         repl.daemon = True
         repl.start()

@@ -15,12 +15,12 @@ circle
 ]
 define
 radius
-20
+10
 -
 cc
 stroke
 radius
-10
+5.0
 -
 cc
 stroke
@@ -38,7 +38,7 @@ radius
 point
 moveto
 radius
-20
+5
 -
 0
 point
