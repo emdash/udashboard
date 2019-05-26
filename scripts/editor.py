@@ -266,8 +266,11 @@ class VM(object):
 
     def circle(self):
         radius = self.pop()
-        (x, y) = self.pop()
-        self.target.arc(x, y, radius, 0, 2 * math.pi)
+        if isinstance(self.peek(), Point):
+            (x, y) = self.pop()
+            self.target.arc(x, y, radius, 0, 2 * math.pi)
+        else:
+            raise VMError("type mismatch")
 
     def rectangle(self):
         h = self.pop()
@@ -583,6 +586,9 @@ class EditorState(object):
 class Editor(object):
 
     trace = Logger("Editor:")
+    code_gutter_height = 20.5
+    vm_gutter_width = 50.5
+    token_length = max((len(op) for op in VM.opcodes))
 
     def __init__(self, update_cb):
         self.state = EditorState.empty()
@@ -607,15 +613,115 @@ class Editor(object):
         self.trace("move:", self.state)
         self.state = self.state.move(dist, False)
 
-    def run(self, cr, env):
+    def run(self, cr, env, origin, scale, window_size):
         self.trace("run:", self.state)
+
+        width, height = window_size
+
+        # prepare the transform matrix
+        cr.save()
+
+        # clip drawing area to leave room for the UI
+        cr.rectangle(
+            0.0,
+            0.0,
+            width - self.vm_gutter_width,
+            height - self.code_gutter_height)
+        cr.clip()
+
+        cr.translate(
+            origin.x - self.vm_gutter_width,
+            origin.y - self.code_gutter_height)
+        cr.scale(scale.x, scale.y)
+
+        # set default context state
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_width(0.5)
+
         # create a new vm instance with the window as the target.
         try:
             vm = VM(cr, env)
             vm.run(self.state.prog)
-            self.stack = vm.stack
-        except VMError as e:
-            self.stack = e.message
+        except Exception as e:
+            print "err:", e
+
+        # lightly stroke any residual path so we can see a preview of it.
+        # TODO: find a better preview fill pattern
+        cr.set_source_rgba(1.0, 0, 0, 0.5)
+        cr.stroke()
+
+        # Draw UI layer, cmdline, and debug info.
+        cr.restore()
+        cr.set_line_width(1.0)
+
+        # draw gutters around UI
+        cr.move_to(0.0, height - self.code_gutter_height)
+        cr.line_to(width, height - self.code_gutter_height)
+        cr.move_to(width - self.vm_gutter_width, 0)
+        cr.rel_line_to(0, height - self.code_gutter_height)
+        cr.stroke()
+
+        # draw the visible region of the bytecode.
+        cursor = self.state.cursor
+        cr.save()
+        cr.translate(0, height - self.code_gutter_height)
+        cr.save()
+        cr.move_to(0, 0)
+        for token in self.state.prog[:cursor.left]:
+            cr.set_source_rgb(0.6, 0.6, 0.6)
+            cr.rectangle(
+                5,
+                5,
+                self.token_length * 5 - 10,
+                self.code_gutter_height - 10)
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)
+            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
+            cr.show_text(str(token))
+            cr.translate(self.token_length * 5, 0)
+
+        # draw cursor
+        if cursor.length <= 1:
+            if self.state.token:
+                selected = [self.state.token]
+            else:
+                selected = []
+        else:
+            selected = self.state.prog[cursor.left:cursor.right]
+
+        cr.rectangle(
+            0.0,
+            5.0,
+            max(0, len(selected) * self.token_length * 5) + 0.5,
+            self.code_gutter_height - 10.5)
+        cr.stroke()
+
+        for token in selected:
+            print token
+            cr.set_source_rgb(0, 0, 0)
+            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
+            cr.show_text(str(token))
+            cr.translate(self.token_length * 5, 0)
+
+        for token in self.state.prog[cursor.right:]:
+            cr.set_source_rgb(0.6, 0.6, 0.6)
+            cr.rectangle(
+                5,
+                5,
+                self.token_length * 5 - 10,
+                self.code_gutter_height - 10)
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)
+            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
+            cr.show_text(str(token))
+            cr.translate(self.token_length * 5, 0)
+        cr.restore()
+        cr.stroke()
+        cr.restore()
+
+        # TODO: show textual stack
+        # TODO: show graphical representation of points on stack
+        # TODO: show graphical representation of values on stack
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
@@ -680,28 +786,12 @@ def gui():
     def draw(widget, cr):
         # get window / screen geometry
         alloc = widget.get_allocation()
-        screen = Point(alloc.width, alloc.height)
+        screen = Point(float(alloc.width), float(alloc.height))
         origin = screen * 0.5
         scale = dpi(widget)
 
-        # prepare the transform matrix
-        cr.save()
-        cr.set_source_rgb(0, 0, 0)
-        cr.translate(origin.x, origin.y)
-        cr.scale(scale.x, scale.y)
-
-        # set default context state
-        cr.set_line_width(0.5)
-
         # excute the program
-        editor.run(cr, defenv(screen, origin))
-        cr.restore()
-
-        # Draw UI layer, cmdline, and debug info.
-        cr.move_to(0, alloc.height - 5)
-        cr.show_text(repr(editor.stack))
-        cr.move_to(alloc.width - 100, alloc.height - 5)
-        cr.show_text(repr(editor.state.token))
+        editor.run(cr, defenv(screen, origin), origin, scale, screen)
 
     def key_press(widget, event):
         editor.handle_key_event(event)
