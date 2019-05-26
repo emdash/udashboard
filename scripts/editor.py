@@ -58,9 +58,10 @@ class Logger(object):
 
     """
 
-    def __init__(self, name, enable):
+    enable = False
+
+    def __init__(self, name):
         self.name = name
-        self.enable = enable
 
     def __call__(self, prefix, *args):
         """Prints a log message."""
@@ -355,7 +356,7 @@ class Cursor(object):
 
     """Represents an editable region of the document"""
 
-    trace = Logger("Cursor:", True)
+    trace = Logger("Cursor:")
 
     def __init__(self, left, right, limit):
         self.trace("__init__:", left, right, limit)
@@ -419,7 +420,7 @@ class EditorState(object):
 
     """Immutable representation of complete document state."""
 
-    trace = Logger("EditorState:", True)
+    trace = Logger("EditorState:")
 
     def __init__(self, cursor, token, prog):
         assert isinstance(cursor, Cursor)
@@ -500,7 +501,7 @@ class EditorState(object):
         prog = list(self.prog)
 
         if self.cursor.length > 0:
-            del prog[self.cursor.left, self.cursor.right]
+            del prog[self.cursor.left:self.cursor.right]
         prog.insert(self.cursor.left, token)
         return EditorState(self.cursor.shift(1, limit=len(prog)), '', prog)
 
@@ -581,7 +582,7 @@ class EditorState(object):
 
 class Editor(object):
 
-    trace = Logger("Editor:", True)
+    trace = Logger("Editor:")
 
     def __init__(self, update_cb):
         self.state = EditorState.empty()
@@ -611,7 +612,7 @@ class Editor(object):
         # create a new vm instance with the window as the target.
         try:
             vm = VM(cr, env)
-            vm.run(self.prog)
+            vm.run(self.state.prog)
             self.stack = vm.stack
         except VMError as e:
             self.stack = e.message
@@ -631,6 +632,7 @@ class Editor(object):
         else:
             print "unhandled:", key
         self.trace("exit:  handle_key:", self.state)
+        print self.state
         self.update_cb()
 
     def handle_cmd(self, cmd):
@@ -699,7 +701,7 @@ def gui():
         cr.move_to(0, alloc.height - 5)
         cr.show_text(repr(editor.stack))
         cr.move_to(alloc.width - 100, alloc.height - 5)
-        cr.show_text(repr(editor.token))
+        cr.show_text(repr(editor.state.token))
 
     def key_press(widget, event):
         editor.handle_key_event(event)
@@ -784,9 +786,11 @@ def test():
 if __name__ == "__main__":
     import sys
     if len(sys.argv) >1 and sys.argv[1] == "test":
+        Logger.enable = True
         test()
     elif len(sys.argv) > 1 and sys.argv[1] == "gui":
         print "GUI"
+        Logger.enable = False
         gui()
     else:
         while True:
