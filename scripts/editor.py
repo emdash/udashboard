@@ -639,16 +639,42 @@ class Editor(object):
         cr.set_line_width(0.5)
 
         # create a new vm instance with the window as the target.
+        cr.save()
         try:
             vm = VM(cr, env)
             vm.run(self.state.prog)
         except Exception as e:
             print "err:", e
+        cr.restore()
 
         # lightly stroke any residual path so we can see a preview of it.
-        # TODO: find a better preview fill pattern
+        # TODO: find a better preview fill pattern that we're guaranteed to see.
         cr.set_source_rgba(1.0, 0, 0, 0.5)
         cr.stroke()
+
+        # show any residual points on stack
+        cr.save()
+        for item in vm.stack:
+            if isinstance(item, Point):
+                cr.arc(item.x, item.y, 0.5, 0, math.pi * 2)
+                cr.fill()
+        cr.restore()
+
+        # draw top two numbers on stack
+        stack_nums = [i for i in reversed(vm.stack)
+                      if (isinstance(i, int) or isinstance(i, float))]
+
+        if len(stack_nums) == 1:
+            cr.move_to(stack_nums[0], -height / 2)
+            cr.line_to(stack_nums[0],  height / 2)
+            cr.stroke()
+        elif len(stack_nums) == 2:
+            cr.move_to(-width / 2, stack_nums[1])
+            cr.line_to(width / 2,  stack_nums[1])
+            cr.stroke()
+            cr.move_to(stack_nums[0], -height / 2)
+            cr.line_to(stack_nums[0],  height / 2)
+            cr.stroke()
 
         # Draw UI layer, cmdline, and debug info.
         cr.restore()
@@ -665,7 +691,6 @@ class Editor(object):
         cursor = self.state.cursor
         cr.save()
         cr.translate(0, height - self.code_gutter_height)
-        cr.save()
         cr.move_to(0, 0)
         for token in self.state.prog[:cursor.left]:
             cr.set_source_rgb(0.6, 0.6, 0.6)
@@ -715,13 +740,17 @@ class Editor(object):
             cr.move_to(7.5, self.code_gutter_height / 2 + 5)
             cr.show_text(str(token))
             cr.translate(self.token_length * 5, 0)
-        cr.restore()
         cr.stroke()
         cr.restore()
 
-        # TODO: show textual stack
-        # TODO: show graphical representation of points on stack
-        # TODO: show graphical representation of values on stack
+        # show textual stack, growing upward
+        cr.translate(
+            width - self.vm_gutter_width,
+            height - self.code_gutter_height - 10)
+        for item in reversed(vm.stack):
+            cr.move_to(0, 0)
+            cr.show_text(repr(item))
+            cr.translate(0, -10)
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
@@ -812,8 +841,6 @@ def gui():
     Gtk.main()
 
 def test():
-    e = Editor(lambda: None)
-
     def case(c, cursor, token, prog):
         if isinstance(c, str):
             kv = ord(c)
@@ -834,6 +861,7 @@ def test():
     assert Cursor(0, 0, 1) != Cursor(0, 0, 2)
     assert Cursor(1, 1, 1) == Cursor(1, 1, 1)
 
+    e = Editor(lambda: None)
     case('f',               (0, 0, 0),  'f',    [])
     case('o',               (0, 0, 0),  'fo',   [])
     case('o',               (0, 0, 0),  'foo',  [])
