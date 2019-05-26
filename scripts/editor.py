@@ -423,6 +423,7 @@ class EditorState(object):
     trace = Logger("EditorState:")
 
     def __init__(self, cursor, token, prog):
+        self.trace("__init__:", cursor, token, prog)
         assert isinstance(cursor, Cursor)
         assert cursor.length <= len(prog)
         assert cursor.limit == len(prog)
@@ -445,10 +446,11 @@ class EditorState(object):
 
     def update(self, cursor=None, token=None, prog=None):
         """Set the cursor value without changing anything else"""
+        self.trace("update:", cursor, token, prog)
         return EditorState(
-            cursor if cursor else self.cursor,
+            cursor if cursor is not None else self.cursor,
             token if token is not None else self.token,
-            prog if prog else self.prog)
+            prog if prog is not None else self.prog)
 
     def push(self, char):
         """Append a character to the current token.
@@ -471,12 +473,12 @@ class EditorState(object):
         if self.token:
             return EditorState(
                 self.cursor,
-                self.token[1:],
+                self.token[0:-1],
                 self.prog)
         elif not self.prog:
             return self
         elif self.cursor.length == 0:
-            return self.move(-1, False).delete()
+            return self.move(-1, False)
         else:
             return self.delete()
 
@@ -518,12 +520,10 @@ class EditorState(object):
             return self
 
         prog = list(self.prog)
-        if self.cursor.length == 1:
-            token = str(self.prog[self.cursor.left])
-        else:
-            token = ''
+        print self.cursor.left, self.cursor.right, prog
         del prog[self.cursor.left:self.cursor.right]
-        return self.update(self.cursor.delete(), token, prog)
+        print self.cursor.delete(), len(prog)
+        return self.update(self.cursor.delete(), prog=prog)
 
     def move(self, direction, shift):
         """Move the cursor forward or backward.
@@ -775,13 +775,23 @@ def test():
     case(Gdk.KEY_Right,     (2, 3, 3),  '0',    ['foo', 'bar', 0])
     case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
     case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_BackSpace, (2, 2, 2),  '0',    ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (2, 3, 3),  '0',    ['foo', 'bar', 0])
+    case(Gdk.KEY_BackSpace, (2, 3, 3),  '',     ['foo', 'bar', 0])
     case(Gdk.KEY_BackSpace, (2, 2, 2),  '',     ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 1, 1),  'bar',  ['foo'])
-    case(Gdk.KEY_Left,      (0, 1, 1),  'foo',  ['foo'])
-    case(Gdk.KEY_Left,      (0, 0, 1),  '',     ['foo'])
-    case(Gdk.KEY_Right,     (0, 1, 1),  'foo',  ['foo'])
-    case(Gdk.KEY_Right,     (1, 1, 1),  '',     ['foo'])
+    case(Gdk.KEY_Left,      (1, 2, 2),  'bar',  ['foo', 'bar'])
+    case(Gdk.KEY_Left,      (1, 1, 2),  '',     ['foo', 'bar'])
+    case(Gdk.KEY_Right,     (1, 2, 2),  'bar',  ['foo', 'bar'])
+    case(Gdk.KEY_Right,     (2, 2, 2),  '',     ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 2, 2),  'bar',  ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 2, 2),  'ba',   ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 2, 2),  'b',    ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 2, 2),  '',     ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 1, 1),  '',     ['foo'])
+    case(Gdk.KEY_BackSpace, (0, 1, 1),  'foo',  ['foo'])
+    case(Gdk.KEY_BackSpace, (0, 1, 1),  'fo',   ['foo'])
+    case(Gdk.KEY_BackSpace, (0, 1, 1),  'f',    ['foo'])
+    case(Gdk.KEY_BackSpace, (0, 1, 1),  '',     ['foo'])
+    case(Gdk.KEY_BackSpace, (0, 0, 0),  '',     [])
 
 if __name__ == "__main__":
     import sys
