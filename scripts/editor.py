@@ -16,11 +16,12 @@
 # License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 
-"""
-Prototype Image Editor and Renderer
 
-This is also the prototype virtual machine. It's to test the idea that
-a model of directly editing the bytecode of a concatenated language.
+"""
+Prototype Image Editor and Renderer.
+
+This is also the prototype virtual machine. It's a testbed for the
+whole concept of self-contained dynamic vector graphics.
 
 The basic idea is as follows:
 - Image data is stored as the bytecode for a stack-based vm.
@@ -41,9 +42,63 @@ import cairo
 import math
 import threading
 from Queue import Queue
+import sys
 
 class VMError(Exception): pass
 class LexError(Exception): pass
+
+
+class Logger(object):
+
+    """Simple but featurfule logger.
+
+    Add class-level instance for any class that needs logging
+    functionality. Implements __call__ so it can be called like a
+    regular method. Also works as a context manager.
+
+    """
+
+    def __init__(self, name, enable):
+        self.name = name
+        self.enable = enable
+
+    def __call__(self, prefix, *args):
+        """Prints a log message."""
+
+        if self.enable:
+            msg = ("%s %s " %
+               (self.name, prefix) +
+                " ".join((repr(arg) for arg in args)))
+            print >> sys.stderr, msg
+        else:
+            return self
+
+    def trace(self, *args):
+        if self.enable:
+            return self.Tracer(self, args)
+        else:
+            return self
+
+    def __enter__(self, *args):
+        """Dummy context manager interface when logging is disabled"""
+        pass
+
+    def __exit__(self, *args):
+        """Dummy context manager interface when logging is disabled"""
+        pass
+
+    class Tracer(object):
+        """Context manager logging."""
+        def __init__(self, logger, args):
+            self.logger = logger
+            self.args = args
+
+        def __enter__(self, *unused):
+            self.logger("enter:")
+
+        def __exit__(self, *unused):
+            self.logger("exit:")
+
 
 class Point(object):
 
@@ -296,146 +351,263 @@ class VM(object):
     }
 
 
-class Tokenizer(object):
-    """Separate tokens from a stream of characters.
+class Cursor(object):
 
-    Numeric literals are parsed on the fly.
-    All other tokens are returned as strings.
-    """
+    """Represents an editable region of the document"""
 
-    space = " \t\r\n\0"
-    numeric = "-.0123456789"
-    digits = numeric[2:]
-    operators = "[]"
-    log = True
+    trace = Logger("Cursor:", True)
 
-    def __init__(self, chars, output, update_cb):
-        self.token = ""
-        self.chars = chars
-        self.output = output
-        self.buffer = []
-        self.eof = False
+    def __init__(self, left, right, limit):
+        self.trace("__init__:", left, right, limit)
+        assert 0 <= left <= right <= limit
+        self.left = left
+        self.right = right
+        self.length = right - left
+        self.limit = limit
 
-        # if we switch to python 3, rewrite this as async generator,
-        # then we don't need this threaded model.
-        self.update_cb = update_cb
-        self.thread = threading.Thread(target=self._process)
-        self.thread.daemon = True
-        self.thread.start()
+    def clamp(self, left, right, limit):
+        length = right - left
+        ret = (
+            max(0, min(limit - length, left)),
+            max(length, min(limit, right)))
+        self.trace("clamp:", left, right, limit, length, ret)
+        # clamping should never change length of selection.
+        assert ret[1] - ret[0] == length
+        return ret
 
-    def trace(self, *args):
-        if self.log:
-            print args[0], " ".join((repr(arg) for arg in args[1:]))
+    def shift(self, dist, limit=None):
+        limit = limit if limit is not None else self.limit
+        self.trace("shift:", dist, limit, self)
+        left, right = self.clamp(
+            self.left + dist,
+            self.right + dist,
+            limit)
+        return Cursor(
+            left,
+            right,
+            limit)
 
-    def nextchar(self):
-        if not self.buffer:
-            self.trace("consume:")
-            self.buffer.append(self.chars.get())
-        char = self.buffer.pop(0)
-        self.trace("ch:", char, self.buffer, self.token)
-        return char
+    def set_size(self, size, side, limit=None):
+        limit = limit if limit else self.limit
+        self.trace("set_size:", size, side, limit, self)
 
-    def emit(self):
-        self.trace("emit:", self.token)
+        assert size >= 0
 
-        try:
-            self.output.put(int(self.token))
-        except ValueError:
-            try:
-                self.output.put(float(self.token))
-            except ValueError:
-                self.output.put(self.token)
-        finally:
-            self.token = ""
-            GObject.idle_add(self.update_cb)
+        if side < 0:
+            (left, right) = (self.left, self.left + size)
+        else:
+            (left, right) = (self.right - size, self.right)
 
-    def accept(self, char):
-        self.trace("accept:", char)
-        self.token += char
-        GObject.idle_add(self.update_cb)
+        (left, right) = self.clamp(left, right, limit)
+        return Cursor(left, right, limit)
 
-    def unaccept(self, char):
-        self.trace("unaccept:", char)
+    def delete(self):
+        ntokens = max(0, min(self.limit, self.length))
+        return Cursor(self.left, self.left, self.limit - ntokens)
+
+    def __str__(self):
+        return "Cursor(%d, %d, %d)" % (self.left, self.right, self.limit)
+
+    def __repr__(self): return self.__str__()
+    def __cmp__(self, o):
+        return cmp(
+            (self.left, self.right, self.limit),
+            (o.left, o.right, o.limit))
+
+
+class EditorState(object):
+
+    """Immutable representation of complete document state."""
+
+    trace = Logger("EditorState:", True)
+
+    def __init__(self, cursor, token, prog):
+        assert isinstance(cursor, Cursor)
+        assert cursor.length <= len(prog)
+        assert cursor.limit == len(prog)
+        self.cursor = cursor
+        # holds the token currently being edited.
+        self.token = token
+        # the entire program, so far.
+        self.prog = prog
+
+    def __str__(self):
+        return "State(%r, %r, %r)" % (self.cursor, self.token, self.prog)
+
+    def __repr__(self):
+        return self.__str__()
+
+    @classmethod
+    def empty(cls):
+        """Returns A blank document."""
+        return EditorState(Cursor(0, 0, 0), '', [])
+
+    def update(self, cursor=None, token=None, prog=None):
+        """Set the cursor value without changing anything else"""
+        return EditorState(
+            cursor if cursor else self.cursor,
+            token if token is not None else self.token,
+            prog if prog else self.prog)
+
+    def push(self, char):
+        """Append a character to the current token.
+        """
+        self.trace("push_char:", self, char)
+        return EditorState(
+            self.cursor,
+            self.token + char,
+            list(self.prog))
+
+    def pop(self):
+        """Remove the last character from the current token.
+
+        If the token is empty, if the selection is nonempty, deletes the
+        selection. If the selection is empty, deletes the character
+        behind the selection.
+        """
+        self.trace("pop_char:", self)
+
         if self.token:
-            self.token = token[:-1]
+            return EditorState(
+                self.cursor,
+                self.token[1:],
+                self.prog)
+        elif not self.prog:
+            return self
+        elif self.cursor.length == 0:
+            return self.move(-1, False).delete()
+        else:
+            return self.delete()
 
-    def reject(self, char):
-        assert char is not None
-        self.trace("reject:", char)
-        self.buffer.append(char)
+    def insert(self):
+        """Commit the current token to the document, at the cursor location.
 
-    def skip(self, cond):
-        self.trace("skip:")
-        while not self.eof:
-            char = self.nextchar()
-            self.trace("sk:", char)
-            if not cond(char):
-                self.reject(char)
-                return
+        Has no effect if token is empty.
 
-    def keep(self, cond, emit=False):
-        self.trace("keep:")
-        while not self.eof:
-            char = self.nextchar()
-            self.trace("kp:", char)
-            if cond(char):
-                self.accept(char)
-                if emit:
-                    self.emit()
+        If the current cursor spreads across tokens, the effect is of
+        replacing the selection with the current token. Otherwise the
+        token is inserted.
+        """
+        self.trace("insert_token:", self)
+
+        if not self.token:
+            return self
+
+        token = self.parse_token()
+
+        # always remember to copy the program before mutating it.
+        # in Rust we could enforce this automatically.
+        prog = list(self.prog)
+
+        if self.cursor.length > 0:
+            del prog[self.cursor.left, self.cursor.right]
+        prog.insert(self.cursor.left, token)
+        return EditorState(self.cursor.shift(1, limit=len(prog)), '', prog)
+
+    def delete(self):
+        self.trace("delete:", self)
+        """Remove tokens spanned by the cursor from the document.
+
+        If cursor spans exactly one token, token is set to the deleted
+        token. Otherwise it is cleared.
+
+        Has no effect if program or cursor is empty.
+        """
+        if not (len(self.prog) or self.cursor.length):
+            return self
+
+        prog = list(self.prog)
+        if self.cursor.length == 1:
+            token = str(self.prog[self.cursor.left])
+        else:
+            token = ''
+        del prog[self.cursor.left:self.cursor.right]
+        return self.update(self.cursor.delete(), token, prog)
+
+    def move(self, direction, shift):
+        """Move the cursor forward or backward.
+        Has no effect if the program length is 0.
+
+        Only the sign of direction is considered, with negative
+        meaning left.
+
+        If shift is true, both ends of the cursor are shifted,
+        preserving the length of the selection. If preserve is false,
+        the selection is collapsed as follows:
+           - if selection length is > 1 cell, collapses to one cell
+           - if selection length is 1, collapses to empty cell
+           - if selection length is 0, surrounds the next cell
+
+        If shift is true, token is cleared.  If shift is false, token
+        is set to the surrounded token, which may be empty.
+        """
+        self.trace("move:", self, direction, shift)
+
+        # if we're already at the limit, this is a no-op
+        if direction < 0:
+            if 0 == self.cursor.left == self.cursor.right:
+                return self
+        else:
+            if self.cursor.left == self.cursor.right == self.cursor.limit:
+                return self
+
+        if shift:
+            cursor = self.cursor.shift(direction)
+        elif self.cursor.length == 0:
+            if direction < 0:
+                cursor = self.cursor.shift(-1).set_size(1, direction)
             else:
-                self.reject(char)
-                return
+                cursor = self.cursor.shift(1).set_size(1, direction)
+        elif self.cursor.length == 1:
+            cursor = self.cursor.set_size(0, direction)
+        else:
+            cursor = self.cursor.set_size(1, direction)
 
-    def _process(self):
-        self.trace("tokenize:")
-        while not self.eof:
-            char = self.nextchar()
-            if char in self.space:
-                self.skip(lambda c: c in self.space)
-            elif char == chr(127):
-                self.unaccept(char)
-            else:
-                self.accept(char)
-                self.keep(lambda c: c not in self.space)
-                self.emit()
+        if cursor.length == 1:
+            token = str(self.prog[cursor.left])
+        else:
+            token = ''
+        return self.update(cursor, token)
+
+    def parse_token(self):
+        self.trace("parse_token:", self)
+        try:
+            return int(self.token)
+        except:
+            try:
+                return float(self.token)
+            except:
+                return self.token
 
 class Editor(object):
 
-    char_map = {
-        Gdk.KEY_BackSpace: chr(127),
-    }
+    trace = Logger("Editor:", True)
 
     def __init__(self, update_cb):
-        self.prog = []
-        self.char_queue = Queue()
-        self.token_queue = Queue()
-        self.tokenizer = Tokenizer(
-            self.char_queue,
-            self.token_queue,
-            self.update_token
-        )
-        self.cursor = (0, 0)
-        self.stack = None
+        self.state = EditorState.empty()
+        self.char_map = {
+            Gdk.KEY_BackSpace: self.delete,
+            Gdk.KEY_space: self.insert,
+            Gdk.KEY_Return: self.insert,
+            Gdk.KEY_Left: lambda: self.move_cursor(-1),
+            Gdk.KEY_Right: lambda: self.move_cursor(1)
+        }
         self.update_cb = update_cb
-        self.token = ""
-        self.reader = threading.Thread(target=self.read)
-        self.reader.daemon = True
-        self.reader.start()
 
-    def update_token(self):
-        self.token = self.tokenizer.token
-        self.update_cb()
+    def insert(self):
+        self.trace("insert", self.state)
+        self.state = self.state.insert()
 
-    def read(self):
-        while True:
-            GObject.idle_add(self.insert, self.token_queue.get())
-            print "got"
+    def delete(self):
+        self.trace("delete:", self.state)
+        self.state = self.state.pop()
 
-    def insert(self, token):
-        self.prog.append(token)
-        self.update_cb()
+    def move_cursor(self, dist):
+        self.trace("move:", self.state)
+        self.state = self.state.move(dist, False)
 
     def run(self, cr, env):
+        self.trace("run:", self.state)
         # create a new vm instance with the window as the target.
         try:
             vm = VM(cr, env)
@@ -444,43 +616,45 @@ class Editor(object):
         except VMError as e:
             self.stack = e.message
 
-    def handle_key(self, event):
-        key = event.keyval
-        print key
-        if 0 <= key <= 255:
-            self.char_queue.put(chr(key))
+    def handle_key_event(self, event):
+        self.trace("handle_key_event:", self.state)
+        self.handle_key(event.keyval)
+
+    def handle_key(self, key):
+        self.trace("enter: handle_key:", self.state)
+        if key in self.char_map:
+            print "control"
+            self.char_map[key]()
+        elif 0 <= key <= 255:
+            print chr(key)
+            self.state = self.state.push(chr(key))
         else:
-            if key in self.char_map:
-                self.char_queue.put(self.char_map[key])
+            print "unhandled:", key
+        self.trace("exit:  handle_key:", self.state)
+        self.update_cb()
 
-
-def handle_input(inp):
-    """Process the given string as a command."""
-    if inp == ":?":
-        for token in prog:
-            print token
-    elif inp == ":clr":
-        prog = []
-        env = {}
-    elif inp == ":undo":
-        prog.pop()
-    elif inp == ":quit":
-        exit(0)
-    elif inp == ":save":
-        f = open("image.dat", "w")
-        for token in prog:
-            print token
-            print >> f, token
-        f.close()
-    elif inp == ":load":
-        prog = [l.strip() for l in open("image.dat", "r")]
-    elif inp.startswith(":set"):
-        cmd, name, val = inp.split()
-        env[name] = [val]
-        print env
-    else:
-        print Tokenizer().tokenize(inp)
-
+    def handle_cmd(self, cmd):
+        """Process the given string as a command."""
+        if cmd == ":clr":
+            self.clear()
+        elif cmd == ":undo":
+            pass
+        elif cmd == ":quit":
+            exit(0)
+        elif cmd == ":save":
+            f = open("image.dat", "w")
+            for token in prog:
+                print token
+                print >> f, token
+            f.close()
+        elif cmd == ":load":
+            self.prog = [l.strip() for l in open("image.dat", "r")]
+        elif cmd.startswith(":set"):
+            _, name, val = cmd.split()
+            env[name] = [val]
+            print env
+        else:
+            print "unrecognized cmd", cmd
 
 def gui():
     def dpi(widget):
@@ -528,7 +702,7 @@ def gui():
         cr.show_text(repr(editor.token))
 
     def key_press(widget, event):
-        editor.handle_key(event)
+        editor.handle_key_event(event)
 
     def update():
         da.queue_draw()
@@ -546,30 +720,66 @@ def gui():
     Gtk.main()
 
 def test():
-    def tokenizer_test(inp, expected):
-        chars = Queue()
-        out = Queue()
-        t = Tokenizer(chars, out)
-        for char in inp:
-            chars.put(char)
-        chars.put(' ')
-        output = []
-        while not chars.empty():
-            pass
-        while not out.empty():
-            x = out.get()
-            output.append(x)
-        assert output == expected
+    e = Editor(lambda: None)
 
-    tokenizer_test("foo bar baz",       ["foo", "bar", "baz"])
-    tokenizer_test("a + b * c",         ["a", "+", "b", "*", "c"])
-    tokenizer_test("a    bbbb c dd d",  ["a", "bbbb", "c", "dd", "d"])
-    tokenizer_test(" a    bbbb c dd d", ["a", "bbbb", "c", "dd", "d"])
-    tokenizer_test("[ 0 [ 1 0 [ [ ] ] ] ]",
-         ["[", 0, "[", 1, 0, "[", "[", "]", "]", "]", "]"])
-    tokenizer_test("2.718 3.14 pi * ^", [2.718, 3.14, 'pi', '*', '^'])
-    tokenizer_test("- -1 0 1 -2.718",   ['-', -1, 0, 1, -2.718])
+    def case(c, cursor, token, prog):
+        if isinstance(c, str):
+            kv = ord(c)
+        else:
+            kv = c
+        e.handle_key(kv)
+        l, r, ll = cursor
+        try:
+            assert e.state.cursor == Cursor(l, r, ll)
+            assert e.state.token == token
+            assert e.state.prog == prog
+        except AssertionError as err:
+            print e.state, "!=", cursor, token, prog
+            raise err
 
+    assert Cursor(0, 0, 0) == Cursor(0, 0, 0)
+    assert Cursor(0, 1, 1) == Cursor(0, 1, 1)
+    assert Cursor(0, 0, 1) != Cursor(0, 0, 2)
+    assert Cursor(1, 1, 1) == Cursor(1, 1, 1)
+
+    case('f',               (0, 0, 0),  'f',    [])
+    case('o',               (0, 0, 0),  'fo',   [])
+    case('o',               (0, 0, 0),  'foo',  [])
+    case(Gdk.KEY_space,     (1, 1, 1),  '',     ['foo'])
+    case(Gdk.KEY_space,     (1, 1, 1),  '',     ['foo'])
+    case(Gdk.KEY_Left,      (0, 1, 1),  'foo',  ['foo'])
+    case(Gdk.KEY_Left,      (0, 0, 1),  '',     ['foo'])
+    case(Gdk.KEY_Right,     (0, 1, 1),  'foo',  ['foo'])
+    case(Gdk.KEY_Right,     (1, 1, 1),  '',     ['foo'])
+    case('b',               (1, 1, 1),  'b',    ['foo'])
+    case('a',               (1, 1, 1),  'ba',   ['foo'])
+    case('r',               (1, 1, 1),  'bar',  ['foo'])
+    case(Gdk.KEY_space,     (2, 2, 2),  '',     ['foo', 'bar'])
+    case('0',               (2, 2, 2),  '0',    ['foo', 'bar'])
+    case(Gdk.KEY_Return,    (3, 3, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (2, 3, 3),  '0',    ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (2, 3, 3),  '0',    ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (2, 2, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (1, 2, 3),  'bar',  ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (1, 1, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (0, 1, 3),  'foo',  ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (0, 0, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Left,      (0, 0, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (0, 1, 3),  'foo',  ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (1, 1, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (1, 2, 3),  'bar',  ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (2, 2, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (2, 3, 3),  '0',    ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
+    case(Gdk.KEY_BackSpace, (2, 2, 2),  '0',    ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (2, 2, 2),  '',     ['foo', 'bar'])
+    case(Gdk.KEY_BackSpace, (1, 1, 1),  'bar',  ['foo'])
+    case(Gdk.KEY_Left,      (0, 1, 1),  'foo',  ['foo'])
+    case(Gdk.KEY_Left,      (0, 0, 1),  '',     ['foo'])
+    case(Gdk.KEY_Right,     (0, 1, 1),  'foo',  ['foo'])
+    case(Gdk.KEY_Right,     (1, 1, 1),  '',     ['foo'])
 
 if __name__ == "__main__":
     import sys
