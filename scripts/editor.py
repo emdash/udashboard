@@ -594,7 +594,7 @@ class Editor(object):
     trace = Logger("Editor:")
     code_gutter_height = 20.5
     vm_gutter_width = 50.5
-    token_length = max((len(op) for op in VM.opcodes))
+    token_length = 55.0
 
     def __init__(self, update_cb):
         self.state = EditorState.empty()
@@ -618,6 +618,20 @@ class Editor(object):
     def move_cursor(self, dist):
         self.trace("move:", self.state)
         self.state = self.state.move(dist, False)
+
+    def token(self, cr, token, fill=True):
+        _, _, tw, _, _, _ = cr.text_extents(token)
+        width = tw + 10
+        cr.set_source_rgb(0.6, 0.6, 0.6)
+        cr.rectangle(0, -5, width, 10)
+        if fill:
+            cr.fill()
+        else:
+            cr.stroke()
+        cr.move_to(5, 4.5)
+        cr.set_source_rgb(0, 0, 0)
+        cr.show_text(token)
+        cr.translate(width + 5, 0)
 
     def run(self, cr, env, origin, scale, window_size):
         self.trace("run:", self.state)
@@ -694,59 +708,27 @@ class Editor(object):
         cr.stroke()
 
         # draw the visible region of the bytecode.
+
         cursor = self.state.cursor
         cr.save()
-        cr.translate(0, height - self.code_gutter_height)
-        cr.move_to(0, 0)
-        for token in self.state.prog[:cursor.left]:
-            cr.set_source_rgb(0.6, 0.6, 0.6)
-            cr.rectangle(
-                5,
-                5,
-                self.token_length * 5 - 10,
-                self.code_gutter_height - 10)
-            cr.fill()
-            cr.set_source_rgb(0, 0, 0)
-            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
-            cr.show_text(str(token))
-            cr.translate(self.token_length * 5, 0)
+        cr.translate(0, height - self.code_gutter_height * 0.5)
+        cr.move_to(5, 0)
 
-        # draw cursor
+        for token in self.state.prog[:cursor.left]:
+            self.token(cr, str(token))
+
         if cursor.length <= 1:
-            if self.state.token:
-                selected = [self.state.token]
-            else:
-                selected = []
+            selected = [self.state.token]
         else:
             selected = self.state.prog[cursor.left:cursor.right]
 
-        cr.rectangle(
-            0.0,
-            5.0,
-            max(0, len(selected) * self.token_length * 5) + 0.5,
-            self.code_gutter_height - 10.5)
-        cr.stroke()
-
         for token in selected:
-            print token
-            cr.set_source_rgb(0, 0, 0)
-            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
-            cr.show_text(str(token))
-            cr.translate(self.token_length * 5, 0)
+            print repr(token)
+            self.token(cr, str(token), False)
 
         for token in self.state.prog[cursor.right:]:
-            cr.set_source_rgb(0.6, 0.6, 0.6)
-            cr.rectangle(
-                5,
-                5,
-                self.token_length * 5 - 10,
-                self.code_gutter_height - 10)
-            cr.fill()
-            cr.set_source_rgb(0, 0, 0)
-            cr.move_to(7.5, self.code_gutter_height / 2 + 5)
-            cr.show_text(str(token))
-            cr.translate(self.token_length * 5, 0)
-        cr.stroke()
+            self.token(cr, str(token))
+
         cr.restore()
 
         # show textual stack, growing upward
