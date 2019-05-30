@@ -509,8 +509,12 @@ class EditorState(object):
 
         if self.cursor.length > 0:
             del prog[self.cursor.left:self.cursor.right]
+            next_ = str(token)
+        else:
+            next_ = ''
         prog.insert(self.cursor.left, token)
-        return EditorState(self.cursor.shift(1, limit=len(prog)), '', prog)
+        return EditorState(
+            self.cursor.shift(1, limit=len(prog)), next_, prog)
 
     def delete(self):
         self.trace("delete:", self)
@@ -711,7 +715,7 @@ class Editor(object):
 
         cursor = self.state.cursor
         cr.save()
-        cr.translate(0, height - self.code_gutter_height * 0.5)
+        cr.translate(width * 0.5, height - self.code_gutter_height * 0.5)
         cr.move_to(5, 0)
 
         for token in self.state.prog[:cursor.left]:
