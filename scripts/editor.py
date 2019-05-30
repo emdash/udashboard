@@ -418,7 +418,6 @@ class Cursor(object):
 
     def __str__(self):
         return "Cursor(%d, %d, %d)" % (self.left, self.right, self.limit)
-
     def __repr__(self): return self.__str__()
     def __cmp__(self, o):
         return cmp(
@@ -480,15 +479,11 @@ class EditorState(object):
         """
         self.trace("pop_char:", self)
 
-        if self.token:
+        if len(self.token) > 0:
             return EditorState(
                 self.cursor,
                 self.token[0:-1],
                 self.prog)
-        elif not self.prog:
-            return self
-        elif self.cursor.length == 0:
-            return self.move(-1, False)
         else:
             return self.delete()
 
@@ -526,7 +521,11 @@ class EditorState(object):
 
         Has no effect if program or cursor is empty.
         """
-        if not (len(self.prog) or self.cursor.length):
+
+        if not self.cursor.length:
+            return self.move(-1, False)
+
+        if not len(self.prog):
             return self
 
         prog = list(self.prog)
