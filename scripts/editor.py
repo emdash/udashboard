@@ -32,6 +32,8 @@ The basic idea is as follows:
 
 """
 
+from __future__ import print_function
+
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_foreign("cairo")
@@ -41,7 +43,7 @@ from gi.repository import Gdk
 import cairo
 import math
 import threading
-from Queue import Queue
+from queue import Queue
 import sys
 
 class VMError(Exception): pass
@@ -70,7 +72,7 @@ class Logger(object):
             msg = ("%s %s " %
                (self.name, prefix) +
                 " ".join((repr(arg) for arg in args)))
-            print >> sys.stderr, msg
+            print(msg, file=sys.stderr)
         else:
             return self
 
@@ -107,7 +109,7 @@ class Point(object):
 
     def __init__(self, x, y): self.x = x ; self.y = y
     def __len__(self):        return math.sqrt(self.x ** 2 + self.y ** 2)
-    def __cmp__(self, o):     return cmp((self.x, self.y), (o.x, o.y))
+    def __eq__(self, o):      return (self.x, self.y) == (o.x, o.y)
     def __repr__(self):       return "(%g, %g)" % (self.x, self.y)
     def __iter__(self):       yield  self.x ; yield self.y
 
@@ -120,10 +122,10 @@ class Point(object):
     __add__  = binop(lambda a, b: a + b)
     __sub__  = binop(lambda a, b: a - b)
     __mul__  = binop(lambda a, b: a * b)
-    __div__  = binop(lambda a, b: a / b)
     __rsub__ = binop(lambda a, b: b - a)
     __rmul__ = binop(lambda a, b: b * a)
-    __rdiv__ = binop(lambda a, b: b / a)
+    __truediv__  = binop(lambda a, b: a / b)
+    __rtruediv__ = binop(lambda a, b: b / a)
 
 
 def frange(lower, upper, step):
@@ -137,32 +139,29 @@ def frange(lower, upper, step):
 class VM(object):
     """Executes bytecode on the given cairo context."""
 
+    trace = Logger("VM:")
+
     def __init__(self, target, env={}, trace=False):
         self.stack = []
         self.lists = []
         self.env = env
         self.target = target
-        self.trace = trace
+        self.trace.enable = trace
 
     def run(self, program):
-        if self.trace:
-            print "PROG:", program
+        self.trace("PROG:", program)
         for (pc, token) in enumerate(program):
-            if self.trace:
-                print "PC: %3d %9s" % (pc, token),
+            self.trace("PC:", "%3d %9s" % (pc, token))
             self.execute(pc, token, program)
-            if self.trace:
-                print "STAK: %r L: %r " % (self.stack, self.env)
+            self.trace("STAK:", "L:", self.stack, "R:", self.env)
 
     def execute(self, pc, token, program):
         if token == "[":
-            if self.trace:
-                print " LIST ",
+            self.trace("LIST")
             self.lists.append([])
             return
         elif token == "]":
-            if self.trace:
-                print " LIST ",
+            self.trace("LIST")
             if len(self.lists) > 1:
                 nested = self.lists.pop()
                 self.lists[-1].append(nested)
@@ -172,8 +171,7 @@ class VM(object):
                 raise VMError("Mismatched ]")
             return
         elif token == "loop":
-            if self.trace:
-                print " LOOP ",
+            self.trace("LOOP")
             # body, token are the tuples we push from ]
             body = self.pop()
             collection = self.pop()
@@ -183,20 +181,16 @@ class VM(object):
             return
 
         if self.lists:
-            if self.trace:
-                print " LIST ",
+            self.trace("LIST")
             self.lists[-1].append(token)
         elif token in self.opcodes:
-            if self.trace:
-                print " OPCD ",
+            self.trace("OPCD")
             self.opcodes[token](self)
         elif token in self.env:
-            if self.trace:
-                print " FUNC ",
+            self.trace("FUNC")
             self.run(self.env[token])
         else:
-            if self.trace:
-                print " PUSH ",
+            self.trace("PUSH")
             self.push(token)
 
     def push(self, val):
@@ -320,10 +314,10 @@ class VM(object):
         self.target.paint()
 
     def disp(self):
-        print self.pop()
+        print(self.pop())
 
     def debug(self):
-        print self.stack
+        print(self.stack)
 
     opcodes = {
         "drop":      drop,
@@ -419,10 +413,8 @@ class Cursor(object):
     def __str__(self):
         return "Cursor(%d, %d, %d)" % (self.left, self.right, self.limit)
     def __repr__(self): return self.__str__()
-    def __cmp__(self, o):
-        return cmp(
-            (self.left, self.right, self.limit),
-            (o.left, o.right, o.limit))
+    def __eq__(self, o):
+        return (self.left, self.right, self.limit) == (o.left, o.right, o.limit)
 
 
 class EditorState(object):
@@ -430,6 +422,7 @@ class EditorState(object):
     """Immutable representation of complete document state."""
 
     trace = Logger("EditorState:")
+    trace.enable = True
 
     def __init__(self, cursor, token, prog):
         self.trace("__init__:", cursor, token, prog)
@@ -533,9 +526,7 @@ class EditorState(object):
             return self
 
         prog = list(self.prog)
-        print self.cursor.left, self.cursor.right, prog
         del prog[self.cursor.left:self.cursor.right]
-        print self.cursor.delete(), len(prog)
         return self.update(self.cursor.delete(), prog=prog)
 
     def move(self, direction, shift):
@@ -674,7 +665,7 @@ class Editor(object):
             vm = VM(cr, env)
             vm.run(self.state.prog)
         except Exception as e:
-            print "err:", e
+            print("err:", dir(e))
         cr.restore()
 
         # lightly stroke any residual path so we can see a preview of it.
@@ -737,7 +728,6 @@ class Editor(object):
 
         direction = Point(1.0, 0)
         for token in selected:
-            print repr(token)
             self.token(cr, str(token), direction, False)
 
         for token in self.state.prog[cursor.right:]:
@@ -759,17 +749,16 @@ class Editor(object):
         self.handle_key(event.keyval)
 
     def handle_key(self, key):
-        self.trace("enter: handle_key:", self.state)
+        self.trace("enter: handle_key:", self.state, key)
         if key in self.char_map:
-            print "control"
             self.char_map[key]()
         elif 0 <= key <= 255:
-            print chr(key)
+            self.trace("key:", chr(key))
             self.state = self.state.push(chr(key))
         else:
-            print "unhandled:", key
+            print("unhandled:")
         self.trace("exit:  handle_key:", self.state)
-        print self.state
+        print(self.state)
         self.update_cb()
 
     def handle_cmd(self, cmd):
@@ -783,17 +772,16 @@ class Editor(object):
         elif cmd == ":save":
             f = open("image.dat", "w")
             for token in prog:
-                print token
-                print >> f, token
+                print(token, file=f)
             f.close()
         elif cmd == ":load":
             self.prog = [l.strip() for l in open("image.dat", "r")]
         elif cmd.startswith(":set"):
             _, name, val = cmd.split()
             env[name] = [val]
-            print env
+            print(env)
         else:
-            print "unrecognized cmd", cmd
+            print("unrecognized cmd", cmd)
 
 def gui():
     def dpi(widget):
@@ -855,7 +843,7 @@ def test():
             assert e.state.token == token
             assert e.state.prog == prog
         except AssertionError as err:
-            print e.state, "!=", cursor, token, prog
+            print(e.state, "!=", cursor, token, prog)
             raise err
 
     assert Cursor(0, 0, 0) == Cursor(0, 0, 0)
@@ -919,12 +907,12 @@ if __name__ == "__main__":
         Logger.enable = True
         test()
     elif len(sys.argv) > 1 and sys.argv[1] == "gui":
-        print "GUI"
+        print("GUI")
         Logger.enable = False
         gui()
     else:
         while True:
-            print handle_input(raw_input("> "))
+            print(handle_input(raw_input("> ")))
 
             continue
             env = {
