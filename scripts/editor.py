@@ -286,6 +286,12 @@ class VM(object):
         (x, y) = self.pop()
         self.target.line_to(x, y)
 
+    def curveto(self):
+        (x3, y3) = self.pop()
+        (x2, y2) = self.pop()
+        (x1, y1) = self.pop()
+        self.target.curve_to(x1, y1, x2, y2, x3, y3)
+
     def stroke(self):
         self.target.stroke()
 
@@ -341,6 +347,7 @@ class VM(object):
         "rectangle": rectangle,
         "moveto":    moveto,
         "lineto":    lineto,
+        "curveto":   curveto,
         "circle":    circle,
         "fill":      fill,
         "stroke":    stroke,
