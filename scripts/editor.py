@@ -623,9 +623,13 @@ class Editor(object):
         self.trace("move:", self.state)
         self.state = self.state.move(dist, False)
 
-    def token(self, cr, token, fill=True):
+    def token(self, cr, token, direction, fill=True):
         _, _, tw, _, _, _ = cr.text_extents(token)
         width = tw + 10
+
+        if direction.x < 0:
+            cr.translate(-(width + 5), 0)
+
         cr.set_source_rgb(0.6, 0.6, 0.6)
         cr.rectangle(0, -5, width, 10)
         if fill:
@@ -635,7 +639,9 @@ class Editor(object):
         cr.move_to(5, 4.5)
         cr.set_source_rgb(0, 0, 0)
         cr.show_text(token)
-        cr.translate(width + 5, 0)
+
+        if direction.x >= 0:
+            cr.translate(width + 5, direction.y * 15)
 
     def run(self, cr, env, origin, scale, window_size):
         self.trace("run:", self.state)
@@ -716,22 +722,26 @@ class Editor(object):
         cursor = self.state.cursor
         cr.save()
         cr.translate(width * 0.5, height - self.code_gutter_height * 0.5)
-        cr.move_to(5, 0)
+        cr.move_to(0, 0)
 
-        for token in self.state.prog[:cursor.left]:
-            self.token(cr, str(token))
+        cr.save()
+        direction = Point(-1.0, 0)
+        for token in reversed(self.state.prog[:cursor.left]):
+            self.token(cr, str(token), direction)
+        cr.restore()
 
         if cursor.length <= 1:
             selected = [self.state.token]
         else:
             selected = self.state.prog[cursor.left:cursor.right]
 
+        direction = Point(1.0, 0)
         for token in selected:
             print repr(token)
-            self.token(cr, str(token), False)
+            self.token(cr, str(token), direction, False)
 
         for token in self.state.prog[cursor.right:]:
-            self.token(cr, str(token))
+            self.token(cr, str(token), direction)
 
         cr.restore()
 
