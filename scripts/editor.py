@@ -668,9 +668,9 @@ class Editor(object):
             print("err:", dir(e))
         cr.restore()
 
-        # lightly stroke any residual path so we can see a preview of it.
-        # TODO: find a better preview fill pattern that we're guaranteed to see.
-        cr.set_source_rgba(1.0, 0, 0, 0.5)
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.set_operator(cairo.OPERATOR_DIFFERENCE)
+        cr.set_line_width(0.5)
         cr.stroke()
 
         # show any residual points on stack
