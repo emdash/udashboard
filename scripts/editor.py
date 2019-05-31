@@ -140,6 +140,16 @@ class VM(object):
     """Executes bytecode on the given cairo context."""
 
     trace = Logger("VM:")
+    joins = {
+        "bevel": cairo.LINE_JOIN_BEVEL,
+        "miter": cairo.LINE_JOIN_MITER,
+        "round": cairo.LINE_JOIN_ROUND
+    }
+    caps = {
+        "butt": cairo.LINE_CAP_BUTT,
+        "round": cairo.LINE_CAP_ROUND,
+        "square": cairo.LINE_CAP_SQUARE
+    }
 
     def __init__(self, target, env={}, trace=False):
         self.stack = []
@@ -222,8 +232,11 @@ class VM(object):
         b = self.pop()
         a = self.pop()
         self.push(a - b)
+    def div(self):
+        b = self.pop()
+        a = self.pop()
+        self.push(a / b)
     def mul(self):  self.push(self.pop() * self.pop())
-    def div(self):  self.push(self.pop() * self.pop())
     def mod(self):  self.push(self.pop() % self.pop())
     def max(self):  self.push(max(self.pop(), self.pop()))
     def min(self):  self.push(min(self.pop(), self.pop()))
@@ -258,6 +271,19 @@ class VM(object):
     def len(self):
         self.push(len(self.pop()))
 
+    def rgb(self):
+        b = self.pop()
+        g = self.pop()
+        r = self.pop()
+        self.push(cairo.SolidPattern(r, g, b))
+
+    def rgba(self):
+        a = self.pop()
+        b = self.pop()
+        g = self.pop()
+        r = self.pop()
+        self.push(cairo.SolidPattern(r, g, b, a))
+
     def circle(self):
         radius = self.pop()
         if isinstance(self.peek(), Point):
@@ -265,6 +291,13 @@ class VM(object):
             self.target.arc(x, y, radius, 0, 2 * math.pi)
         else:
             raise VMError("type mismatch")
+
+    def arc(self):
+        end = self.pop()
+        start = self.pop()
+        radius = self.pop()
+        (x, y) = self.pop()
+        self.target.arc(x, y, radius, start, end)
 
     def rectangle(self):
         h = self.pop()
@@ -286,11 +319,35 @@ class VM(object):
         (x1, y1) = self.pop()
         self.target.curve_to(x1, y1, x2, y2, x3, y3)
 
+    def close(self):
+        self.target.close_path()
+
+    def new(self):
+        self.target.new_path()
+
+    def subpath(self):
+        self.target.new_subpath()
+
+    def source(self):
+        self.target.set_source(self.pop())
+
+    def linewidth(self):
+        self.target.set_line_width(self.pop())
+
+    def linejoin(self):
+        self.target.set_line_join(self.joins.get(self.pop()))
+
+    def linecap(self):
+        self.target.set_line_cap(self.caps.get(self.pop()))
+
     def stroke(self):
         self.target.stroke()
 
     def fill(self):
         self.target.fill()
+
+    def clip(self):
+        self.target.clip()
 
     def save(self):
         self.target.save()
@@ -338,12 +395,23 @@ class VM(object):
         "point":     point,
         "unpack":    unpack,
         "len":       len,
+        "rgb":       rgb,
+        "rgba":      rgba,
         "rectangle": rectangle,
         "moveto":    moveto,
         "lineto":    lineto,
         "curveto":   curveto,
         "circle":    circle,
+        "arc":       arc,
         "fill":      fill,
+        "clip":      clip,
+        "close":     close,
+        "new":       new,
+        "subpath":   subpath,
+        "source":    source,
+        "linewidth": linewidth,
+        "linejoin":  linejoin,
+        "linecap":   linecap,
         "stroke":    stroke,
         "save":      save,
         "restore":   restore,
@@ -665,7 +733,7 @@ class Editor(object):
             vm = VM(cr, env)
             vm.run(self.state.prog)
         except Exception as e:
-            print("err:", dir(e))
+            print("err:", e)
         cr.restore()
 
         # save the current point
@@ -813,7 +881,9 @@ def gui():
         return {
             "screen": [screen],
             "origin": [origin],
-            "pi": [math.pi]
+            "pi": [math.pi],
+            "radians": [2 * math.pi],
+            "degrees": [2 * math.pi / 360.0]
         }
 
     def draw(widget, cr):
