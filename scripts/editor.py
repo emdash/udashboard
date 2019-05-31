@@ -657,7 +657,7 @@ class Editor(object):
 
         # set default context state
         cr.set_source_rgb(0, 0, 0)
-        cr.set_line_width(0.5)
+        cr.set_line_width(1.0)
 
         # create a new vm instance with the window as the target.
         cr.save()
@@ -668,10 +668,24 @@ class Editor(object):
             print("err:", dir(e))
         cr.restore()
 
+        # save the current point
+        x, y = cr.get_current_point()
+
+        # stroke any residual path for feedback
         cr.set_source_rgb(1.0, 1.0, 1.0)
         cr.set_operator(cairo.OPERATOR_DIFFERENCE)
-        cr.set_line_width(0.5)
+        cr.set_line_width(0.1)
         cr.stroke()
+
+        # draw the current point.
+        cr.save()
+        cr.translate(x, y)
+        cr.move_to(-1, 0)
+        cr.line_to(1, 0)
+        cr.move_to(0, -1)
+        cr.line_to(0, 1)
+        cr.stroke()
+        cr.restore()
 
         # show any residual points on stack
         cr.save()
