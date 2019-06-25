@@ -32,6 +32,48 @@ The basic idea is as follows:
 
 """
 
+# TODO:
+# - type checking in the vm
+  # number (int or float)
+  # range
+  # point
+  # enum(*values)
+  # list(type)
+  # tuple(*types)
+# - better feedback and reporting of vm errors
+# - allow a plain define that's just a lookup
+# - mouse click to set / update current point.
+# - mouse drag to set / update current point
+# - make points draggable with the mouse.
+# - redefinition should be an error
+
+# MISSING FEATURES
+# - save and load files (define header format)
+#   - define top-level format and meta-data
+#   - physicial size and editor should render the
+#   - version string
+# - click-and drag to update control points
+# - click-and-drag for affine transforms.
+# - show current pattern
+# - color chooser
+# - gradients
+# - keyboard shortcuts
+#   bounds
+# - font selection
+# - text size selection
+# - text strings (escaping)
+# - live data input (from stdin)
+# - composition of smaller images
+# - zoom and pan
+
+# OPEN ISSUES
+# - is direct editing of bytecode the right model?
+# - explore modal editing
+  # - vim-style command mode
+# - what's the right model for working with variables?
+# - what's the right model for working with functions?
+# - what's the right model for working with expressions
+
 from __future__ import print_function
 
 import gi
