@@ -194,7 +194,7 @@ class VM(object):
     }
 
     def __init__(self, target, env={}, trace=False):
-        self.stack = []
+        self.stack = {}
         self.lists = []
         self.env = env
         self.target = target
@@ -225,8 +225,8 @@ class VM(object):
         elif token == "loop":
             self.trace("LOOP")
             # body, token are the tuples we push from ]
-            body = self.pop()
-            collection = self.pop()
+            body = self.pop("do")
+            collection = self.pop("in")
             for value in collection:
                 self.push(value)
                 self.run(body)
@@ -245,8 +245,8 @@ class VM(object):
             self.trace("PUSH")
             self.push(token)
 
-    def push(self, val):
-        self.stack.insert(0, val)
+    def push(self, val, tag):
+        self.stack[tag] = val
 
     def peek(self, index=0):
         return self.stack[index]
@@ -254,13 +254,14 @@ class VM(object):
     def poke(self, value, index=0):
         self.stack[index] = value
 
-    def pop(self, index=0):
+    def pop(self, slot):
         try:
-            return self.stack.pop(index)
+            return self.stack.pop(slot)
         except:
             raise VMError("Stack underflow")
 
     # --- OPCODES
+
     def swap(self):
         temp = self.peek(0)
         self.poke(self.peek(1))

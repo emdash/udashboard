@@ -27,7 +27,8 @@ use udashboard::{
     config::{Style, Pattern, Color},
     output,
     render::{CairoRenderer, PNGRenderer},
-    data::{State, ReadSource}
+    data::{State, ReadSource},
+    vm
 };
 
 fn main() {
