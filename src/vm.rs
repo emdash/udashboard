@@ -56,23 +56,22 @@
 //
 // Safety is naturally implementation-dependent. Much of the
 // guarantees here depend on run-time error detection which, in the
-// age of spectre, has known weaknesses. Moreover, it is up to the
-// embedding applicatoin not to expose further vulnerabilities to
-// would-be attackers. All information handed off to the kernel should
-// be carefully scrubbed.
+// age of spectre, is not reliable. Moreover, it is up to the
+// embedding code not to provide the VM with fundamentally unsafe
+// capabilities via the Effects mechanism.
 //
 // The goal here is simply to not exacerbate the problem with an
-// instruction set that is fundamentally unsafe. This is done by
-// carefully sanitizing each operation, avoiding the accidental
-// creation of "weird machines" that have proven to be fertile ground
-// for vulnerabilities to fester.
+// instruction set that is fundamentally inscrutable, and full of
+// implementation quirks, AKA "weird machines" that have proven to be
+// fertile ground for vulnerabilities to fester.
 //
-// The application has the responsibility to uphold the following
-// contract: *it must not allow effects to write back to the
-// environment during program execution*!  This is crucial!  The API
-// is designed to prevent this from happening by accident, but I can't
-// stop you form using "unsafe", "RefCell" or other hacks to
-// defeat this intentional restriction. You have been warned.
+// Crucially, the embedding application has the responsibility to
+// uphold the following contract: *it must not allow effects to write
+// back to the environment during program execution*!  This is
+// crucial!  The API is designed to prevent this from happening by
+// accident, but I can't stop you form using "unsafe", "RefCell" or
+// other hacks to defeat this intentional restriction. You have been
+// warned.
 //
 // *Instructions*
 //
@@ -86,14 +85,22 @@
 // parameters. This greatly simplifies compilation of high-level code,
 // while keeping *all* operands on the stack.
 //
-// Control flow is provided by "bt", "bf", and "jmp" instructions, which 
+// Control flow is provided by "bt", "bf", and "jmp" instructions,
+// which take *addresses* rather than abstract "blocks" as you see in
+// fourth. This is for the sake of efficiency. I don't like the
+// overhead that blocks require, seems wasted with an in-memory
+// representation. This is a low level ISA intended to serve as a
+// target for a higher-level language. I could be convinced
+// otherwise. But the way I see it, you have to do some form of linear
+// scan over the bytecode at load time, and it's easy enough to
+// calculate addresses during that phase.
 //
 // *Values*
 //
 // - int, float, char, string, id, list, map, effect, addr (see below).
 //
-// Arithmetic is allowed only on int / float types. There is no silent
-// coercion.
+// Arithmetic is allowed only on int and float types. There is no
+// silent coercion.
 //
 // String, list, and map types are immutable, and static for the
 // duration of the VM program.
@@ -113,7 +120,11 @@
 // the Addr is used in a variety of contexts, it's important to
 // understand that by design there are separate address spaces for
 // instructions, static data, the environment, and the stack. In
-// addition, no opcodes support calculations on addresses at runtime.
+// addition, no opcodes support calculations on addresses at
+// runtime. I may relax this restriction slightly, for the sake of
+// being able to support jump tables. If I do, it will take the form
+// of an 8-bit immediate operand on the Jmp instruction. I need to be
+// convinced it's relatively safe to allow this.
 //
 // *The Stack*
 //
