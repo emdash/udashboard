@@ -337,7 +337,22 @@ pub enum TypeTag {
     Addr
 }
 
-/* I think this is the idiomatic way to do this *******************************/
+
+// Like core::Into, except that it returns a Result.
+//
+// The problem with Into is that Into<T>::into() returns a T, and
+// since this is a runtime value, we need to implement Into for
+// Result<T>, not plain T. But the compiler isn't smart enough to
+// deduce the type.
+trait TryInto<T> {
+    fn try_into(self) -> Result<T>;
+}
+
+
+fn expected(expected: TypeTag, got: Value) -> Error {
+    Error::TypeError { expect: expected, got: got.into() }
+}
+
 
 impl Value {
     pub fn coerce(self, tt: TypeTag) -> Result<Value> {
@@ -356,41 +371,43 @@ impl Value {
     }
 }
 
-impl Into<Result<bool>> for Value {
-    fn into(self) -> Result<bool> {
+
+// TODO: factor into macro
+impl TryInto<bool> for Value {
+    fn try_into(self) -> Result<bool> {
         match self {
             Value::Bool(value) => Ok(value),
-            v => Err(Error::TypeError(TypeTag::Bool)),
+            v => Err(expected(TypeTag::Bool, v)),
         }
     }
 }
 
 
-impl Into<Result<i64>> for Value {
-    fn into(self) -> Result<i64> {
+impl TryInto<i64> for Value {
+    fn try_into(self) -> Result<i64> {
         match self {
             Value::Int(value) => Ok(value),
-            v => Err(Error::TypeError(TypeTag::Int)),
+            v => Err(expected(TypeTag::Int, v)),
         }
     }
 }
 
 
-impl Into<Result<f64>> for Value {
-    fn into(self) -> Result<f64> {
+impl TryInto<f64> for Value {
+    fn try_into(self) -> Result<f64> {
         match self {
             Value::Float(value) => Ok(value),
-            v => Err(Error::TypeError(TypeTag::Int)),
+            v => Err(expected(TypeTag::Float, v)),
         }
     }
 }
 
 
-impl Into<Result<usize>> for Value {
-    fn into(self) -> Result<usize> {
+impl TryInto<usize> for Value {
+    fn try_into(self) -> Result<usize> {
         match self {
             Value::Addr(value) => Ok(value),
-            _ => Err(Error::TypeError(TypeTag::Addr)),
+            v => Err(expected(TypeTag::Addr, v)),
         }
     }
 }
@@ -419,19 +436,122 @@ impl Into<TypeTag> for Value {
     }
 }
 
-
-impl Add for Value {
-    type Output = Result<Value>;
-
-    fn add(self, other: Self) -> Self::Output {
-        use Value::*;
-        match (self, other) {
-            (Int(a),   Int(b))  => Ok(  Int(a + b)),
-            (Float(a), Float(b))=> Ok(Float(a + b)),
-            (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+macro_rules! binop {
+    (op $camel:ident $lcase:ident { $( $p:pat => $e:expr ),+ } ) => {
+        impl $camel for Value {
+            type Output = Result<Value>;
+            fn $lcase(self, other: Self) -> Self::Output {
+                use Value::*;
+                match (self, other) {
+                    $($p => $e),+
+                }
+            }
         }
-    }
+    };
 }
+
+
+macro_rules! unop {
+    (op $camel:ident $lcase:ident { $( $p:pat => $e:expr ),+ } ) => {
+        impl $camel for Value {
+            type Output = Result<Value>;
+            fn $lcase(self) -> Self::Output {
+                use Value::*;
+                match self {
+                    $($p => $e),+
+                }
+            }
+        }
+    };
+}
+
+
+
+binop!(
+    op Add add {
+        (Int(a),   Int(b))   => Ok(  Int(a + b)),
+        (Float(a), Float(b)) => Ok(Float(a + b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op Sub sub {
+        (Int(a),   Int(b))   => Ok(  Int(a - b)),
+        (Float(a), Float(b)) => Ok(Float(a - b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op Mul mul {
+        (Int(a),   Int(b))   => Ok(  Int(a * b)),
+        (Float(a), Float(b)) => Ok(Float(a * b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op Div div {
+        (Int(a),   Int(b))   => Ok(  Int(a / b)),
+        (Float(a), Float(b)) => Ok(Float(a / b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op Shl shl {
+        (Int(a), Int(b)) => Ok(Int(a >> b)),
+        (a, b)           => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op BitAnd bitand {
+        (Bool(a),  Bool(b)) => Ok(Bool(a & b)),
+        (Int(a),   Int(b))  => Ok( Int(a & b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op BitOr bitor {
+        (Bool(a),  Bool(b)) => Ok(Bool(a | b)),
+        (Int(a),   Int(b))  => Ok( Int(a | b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op BitXor bitxor {
+        (Bool(a),  Bool(b)) => Ok(Bool(a ^ b)),
+        (Int(a),   Int(b))  => Ok( Int(a ^ b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+unop!(
+    op Not not {
+        Bool(a) => Ok(Bool(!a)),
+        a => Err(expected(TypeTag::Bool, a))
+    }
+);
+
+
+unop!(
+    op Neg neg {
+        Int(a) => Ok(Int(-a)),
+        a => Err(expected(TypeTag::Bool, a))
+    }
+);
 
 
 /******************************************************************************/
@@ -458,7 +578,10 @@ pub enum Error {
     NotImplemented,
     IllegalOpcode,
     IllegalAddr(usize),
-    TypeError(TypeTag),
+    TypeError {
+        expect: TypeTag,
+        got: TypeTag
+    },
     TypeMismatch(TypeTag, TypeTag),
     //NameError(Rc<String>),
     IndexError(usize),
@@ -653,23 +776,30 @@ impl VM {
         Ok(ControlFlow::Yield(self.pop()?.coerce(tt)?))
     }
 
+    // Needed this because type inference failed.
+    fn pop_into<T>(&mut self) -> Result<T> where Value: TryInto<T> {
+        let v: Value = self.pop()?;
+        let v: T = v.try_into()?;
+        Ok(v)
+    }
+
     // Push current PC onto stack, and jump.
     fn call(&mut self) -> Result<ControlFlow> {
-        let target: usize = self.pop()?.into()?;
+        let target: usize = self.pop_into()?;
         self.push(Value::Addr(self.pc));
         Ok(ControlFlow::Branch(target))
     }
 
     // Return from subroutine.
     fn ret(&mut self) -> Result<ControlFlow> {
-        let target: usize = self.pop()?.into()?;
+        let target: usize = self.pop_into()?;
         Ok(ControlFlow::Branch(target))
     }
 
     // Branch if top of stack is true.
     fn branch_true(&mut self) -> Result<ControlFlow> {
-        let target: usize = self.pop()?.into()?;
-        let cond: bool = self.pop()?.into()?;
+        let target: usize = self.pop_into()?;
+        let cond: bool = self.pop_into()?;
         Ok(if cond {
             ControlFlow::Branch(target)
         } else {
@@ -679,8 +809,8 @@ impl VM {
 
     // Branch if top of stack is false.
     fn branch_false(&mut self) -> Result<ControlFlow> {
-        let target: usize = self.pop()?.into()?;
-        let cond: bool = self.pop()?.into()?;
+        let target: usize = self.pop_into()?;
+        let cond: bool = self.pop_into()?;
         Ok(if cond {
             ControlFlow::Advance
         } else {
@@ -690,7 +820,7 @@ impl VM {
 
     // Unconditional branch
     fn jump(&mut self) -> Result<ControlFlow> {
-        let addr: usize = self.pop()?.into()?;
+        let addr: usize = self.pop_into()?;
         Ok(ControlFlow::Branch(addr))
     }
 
