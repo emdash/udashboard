@@ -504,14 +504,6 @@ binop!(
 
 
 binop!(
-    op Shl shl {
-        (Int(a), Int(b)) => Ok(Int(a >> b)),
-        (a, b)           => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
     op BitAnd bitand {
         (Bool(a),  Bool(b)) => Ok(Bool(a & b)),
         (Int(a),   Int(b))  => Ok( Int(a & b)),
@@ -536,6 +528,23 @@ binop!(
         (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
     }
 );
+
+
+binop!(
+    op Shl shl {
+        (Int(a),   Int(b))  => Ok(Int(a >> b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
+
+binop!(
+    op Shr shr {
+        (Int(a),   Int(b))  => Ok(Int(a << b)),
+        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+    }
+);
+
 
 
 unop!(
@@ -709,12 +718,12 @@ impl VM {
     // type-checking as it is.
     pub unsafe fn step(&mut self, env: &Env) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
-        let result = self.dispatch(opcode)?;
+        let result = self.dispatch(opcode, env)?;
 
         match result {
             ControlFlow::Advance      => {self.pc += 1;},
             ControlFlow::Branch(addr) => {self.pc = addr;},
-            ControlFlow::Yield(v)     => {self.push(v); self.pc += 1;},
+            ControlFlow::Yield(v)     => {self.push(v)?; self.pc += 1;},
         };
 
         Ok(())
@@ -786,7 +795,7 @@ impl VM {
     // Push current PC onto stack, and jump.
     fn call(&mut self) -> Result<ControlFlow> {
         let target: usize = self.pop_into()?;
-        self.push(Value::Addr(self.pc));
+        self.push(Value::Addr(self.pc))?;
         Ok(ControlFlow::Branch(target))
     }
 
@@ -841,7 +850,7 @@ impl VM {
     fn swap(&mut self) -> Result<ControlFlow> {
         let b = self.pop()?;
         let a = self.pop()?;
-        self.push(b);
+        self.push(b)?;
         self.push(a)
     }
 
@@ -859,7 +868,7 @@ impl VM {
     }
 
     // Dispatch table for built-in opcodes
-    fn dispatch(&mut self, op: Opcode) -> Result<ControlFlow> {
+    fn dispatch(&mut self, op: Opcode, _: &Env) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),
