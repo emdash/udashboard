@@ -177,19 +177,6 @@
 
 
 use std::collections::HashMap;
-use core::ops::Add;
-use core::ops::Sub;
-use core::ops::Mul;
-use core::ops::Div;
-use core::ops::BitAnd;
-use core::ops::BitOr;
-use core::ops::BitXor;
-use core::ops::Shl;
-use core::ops::Shr;
-use core::ops::Not;
-use core::ops::Neg;
-use core::cmp::PartialEq;
-use core::cmp::PartialOrd;
 
 
 // Arithmetic and logic operations
@@ -349,12 +336,49 @@ trait TryInto<T> {
 }
 
 
+// Construct an Error::TypeError from a value.
 fn expected(expected: TypeTag, got: Value) -> Error {
     Error::TypeError { expect: expected, got: got.into() }
 }
 
+// Construct an Error::TypeMismatch from a value.
 fn type_mismatch(a: Value, b: Value) -> Error {
     Error::TypeMismatch(a.into(), b.into())
+}
+
+
+// Factors out the boiler plate in operator method implementations.
+//
+// There are two matchers: binary and unary.
+//
+// They both the name of the method to be defined, and a list of
+// <pattern> => <expr>, which is the white-list of operands which
+// actually implement the operator. Anything not included in the match
+// table is implictly a runtime error.
+macro_rules! operator {
+    // Template for a unary operator
+    (un $name:ident { $( $p:pat => $e:expr ),+ } ) => {
+        pub fn $name (self) -> Result<Value> {
+            // Bringing Value into scope saves us some characters
+            use Value::*;
+            match self {
+                $($p => Ok($e)),+ ,
+                value => Err(expected(TypeTag::Int, value))
+            }
+        }
+    };
+
+    // Template ofr a binary operator
+    (bin $name:ident { $( $p:pat => $e:expr ),+ } ) => {
+        pub fn $name (self, other: Value) -> Result<Value> {
+            // Bringing value into scope saves us some characters.
+            use Value::*;
+            match (self, other) {
+                $($p => Ok($e)),+ ,
+                (a, b) => Err(type_mismatch(a, b))
+            }
+        }
+    };
 }
 
 
@@ -373,79 +397,93 @@ impl Value {
         }
     }
 
-    pub fn abs(self) -> Result<Value> {
-        use Value::*;
-        match self {
-            Int(value)   => Ok(Value::Int(value.abs())),
-            Float(value) => Ok(Value::Float(value.abs())),
-            // XXX: need to define TypeTag::Num, which is int or float.
-            value        => Err(expected(TypeTag::Int, value))
-        }
-    }
+    operator! { un abs {
+        Int(value)   => Value::Int(value.abs()),
+        Float(value) => Value::Float(value.abs())
+    } }
 
-    pub fn min(self, other: Value) -> Result<Value> {
-        use Value::*;
-        match (self, other) {
-            (Int(a),   Int(b))   => Ok(Value::Int(a.min(b))),
-            (Float(a), Float(b)) => Ok(Value::Float(a.min(b))),
-            // XXX: need to define TypeTag::Num, which is int or float.
-            (a,        b)        => Err(type_mismatch(a, b))
-        }
-    }
+    operator! { bin pow {
+        // XXX: silent coercion to u32.
+        (Int(a),   Int(b))   => Value::Int(a.pow(b as u32)),
+        (Float(a), Float(b)) => Value::Float(a.powf(b))
+    } }
 
-    pub fn max(self, other: Value) -> Result<Value> {
-        use Value::*;
-        match (self, other) {
-            (Int(a),   Int(b))   => Ok(Value::Int(a.max(b))),
-            (Float(a), Float(b)) => Ok(Value::Float(a.max(b))),
-            // XXX: need to define TypeTag::Num, which is int or float.
-            (a,        b)        => Err(type_mismatch(a, b))
+    operator! { bin min {
+        // XXX: silent coercion to u32.
+        (Int(a),   Int(b))   => Value::Int(a.min(b)),
+        (Float(a), Float(b)) => Value::Float(a.min(b))
+    } }
+
+    operator! { bin max {
+        // XXX: silent coercion to u32.
+        (Int(a),   Int(b))   => Value::Int(a.max(b)),
+        (Float(a), Float(b)) => Value::Float(a.max(b))
+    } }
+
+    operator! { bin add {
+        (Int(a),   Int(b))   => Int(a + b),
+        (Float(a), Float(b)) => Float(a + b)
+    } }
+
+    operator! { bin sub {
+        (Int(a),   Int(b))   => Int(a - b),
+        (Float(a), Float(b)) => Float(a - b)
+    } }
+
+    operator! { bin mul {
+        (Int(a),   Int(b))   => Int(a * b),
+        (Float(a), Float(b)) => Float(a * b)
+    } }
+
+    operator! { bin div {
+        (Int(a),   Int(b))   => Int(a / b),
+        (Float(a), Float(b)) => Float(a / b)
+    } }
+
+    operator! { bin bitand {
+        (Bool(a), Bool(b)) => Bool(a & b),
+        (Int(a),  Int(b))  => Int(a & b)
+    } }
+
+    operator! { bin bitor {
+        (Bool(a), Bool(b)) => Bool(a | b),
+        (Int(a),  Int(b))  => Int(a | b)
+    } }
+
+    operator! { bin bitxor {
+        (Bool(a), Bool(b)) => Bool(a ^ b),
+        (Int(a),  Int(b))  => Int(a ^ b)
+    } }
+
+    operator! { bin shl { (Int(a), Int(b)) => Int(a >> b) } }
+    operator! { bin shr { (Int(a), Int(b)) => Int(a << b) } }
+    operator! { un  not { Bool(a) => Bool(!a) } }
+    operator! { un  neg { Int(a) => Int(-a) } }
+}
+
+
+// Factor out boilerplate for implementation of TryInto 
+macro_rules! impl_try_into {
+    ($variant:ident => $type:ident) => {
+        impl TryInto<$type> for Value {
+            fn try_into(self) -> Result<$type> {
+                match self {
+                    Value::$variant(value) => Ok(value),
+                    v => Err(expected(TypeTag::$variant, v))
+                }
+            }
         }
     }
 }
 
-
-// TODO: factor into macro
-impl TryInto<bool> for Value {
-    fn try_into(self) -> Result<bool> {
-        match self {
-            Value::Bool(value) => Ok(value),
-            v => Err(expected(TypeTag::Bool, v)),
-        }
-    }
-}
+impl_try_into! { Bool  => bool }
+impl_try_into! { Int   => i64 }
+impl_try_into! { Float => f64 }
+impl_try_into! { Addr  => usize }
 
 
-impl TryInto<i64> for Value {
-    fn try_into(self) -> Result<i64> {
-        match self {
-            Value::Int(value) => Ok(value),
-            v => Err(expected(TypeTag::Int, v)),
-        }
-    }
-}
-
-
-impl TryInto<f64> for Value {
-    fn try_into(self) -> Result<f64> {
-        match self {
-            Value::Float(value) => Ok(value),
-            v => Err(expected(TypeTag::Float, v)),
-        }
-    }
-}
-
-
-impl TryInto<usize> for Value {
-    fn try_into(self) -> Result<usize> {
-        match self {
-            Value::Addr(value) => Ok(value),
-            v => Err(expected(TypeTag::Addr, v)),
-        }
-    }
-}
-
-
+// This probably could just be an associated function, rather than a
+// trait.
 impl From<Immediate> for Value {
     fn from(v: Immediate) -> Value {
         match v {
@@ -457,7 +495,7 @@ impl From<Immediate> for Value {
     }
 }
 
-
+// We can always obtain a TypeTag for a value.
 impl Into<TypeTag> for Value {
     fn into(self) -> TypeTag {
         match self {
@@ -468,132 +506,6 @@ impl Into<TypeTag> for Value {
         }
     }
 }
-
-macro_rules! binop {
-    (op $camel:ident $lcase:ident { $( $p:pat => $e:expr ),+ } ) => {
-        impl $camel for Value {
-            type Output = Result<Value>;
-            fn $lcase(self, other: Self) -> Self::Output {
-                use Value::*;
-                match (self, other) {
-                    $($p => $e),+
-                }
-            }
-        }
-    };
-}
-
-
-macro_rules! unop {
-    (op $camel:ident $lcase:ident { $( $p:pat => $e:expr ),+ } ) => {
-        impl $camel for Value {
-            type Output = Result<Value>;
-            fn $lcase(self) -> Self::Output {
-                use Value::*;
-                match self {
-                    $($p => $e),+
-                }
-            }
-        }
-    };
-}
-
-
-
-binop!(
-    op Add add {
-        (Int(a),   Int(b))   => Ok(  Int(a + b)),
-        (Float(a), Float(b)) => Ok(Float(a + b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op Sub sub {
-        (Int(a),   Int(b))   => Ok(  Int(a - b)),
-        (Float(a), Float(b)) => Ok(Float(a - b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op Mul mul {
-        (Int(a),   Int(b))   => Ok(  Int(a * b)),
-        (Float(a), Float(b)) => Ok(Float(a * b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op Div div {
-        (Int(a),   Int(b))   => Ok(  Int(a / b)),
-        (Float(a), Float(b)) => Ok(Float(a / b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op BitAnd bitand {
-        (Bool(a),  Bool(b)) => Ok(Bool(a & b)),
-        (Int(a),   Int(b))  => Ok( Int(a & b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op BitOr bitor {
-        (Bool(a),  Bool(b)) => Ok(Bool(a | b)),
-        (Int(a),   Int(b))  => Ok( Int(a | b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op BitXor bitxor {
-        (Bool(a),  Bool(b)) => Ok(Bool(a ^ b)),
-        (Int(a),   Int(b))  => Ok( Int(a ^ b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op Shl shl {
-        (Int(a),   Int(b))  => Ok(Int(a >> b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-binop!(
-    op Shr shr {
-        (Int(a),   Int(b))  => Ok(Int(a << b)),
-        (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
-    }
-);
-
-
-
-unop!(
-    op Not not {
-        Bool(a) => Ok(Bool(!a)),
-        a => Err(expected(TypeTag::Bool, a))
-    }
-);
-
-
-unop!(
-    op Neg neg {
-        Int(a) => Ok(Int(-a)),
-        a => Err(expected(TypeTag::Bool, a))
-    }
-);
 
 
 /******************************************************************************/
@@ -783,21 +695,21 @@ impl VM {
         let b = self.pop()?;
         let a = self.pop()?;
         let ret = match op {
-            BinOp::Add  => a + b,
-            BinOp::Sub  => a - b,
-            BinOp::Mul  => a * b,
-            BinOp::Div  => a / b,
-            BinOp::Pow  => Err(Error::NotImplemented),
-            BinOp::And  => a & b,
-            BinOp::Or   => a | b,
-            BinOp::Xor  => a ^ b,
+            BinOp::Add  => a.add(b),
+            BinOp::Sub  => a.sub(b),
+            BinOp::Mul  => a.mul(b),
+            BinOp::Div  => a.div(b),
+            BinOp::Pow  => a.pow(b),
+            BinOp::And  => a.bitand(b),
+            BinOp::Or   => a.bitor(b),
+            BinOp::Xor  => a.bitxor(b),
             BinOp::Lt   => Err(Error::NotImplemented),
             BinOp::Gt   => Err(Error::NotImplemented),
             BinOp::Lte  => Err(Error::NotImplemented),
             BinOp::Gte  => Err(Error::NotImplemented),
             BinOp::Eq   => Err(Error::NotImplemented),
-            BinOp::Shl  => a >> b,
-            BinOp::Shr  => a << b,
+            BinOp::Shl  => a.shl(b),
+            BinOp::Shr  => a.shl(b),
             BinOp::Min  => a.min(b),
             BinOp::Max  => a.max(b)
         }?;
@@ -808,8 +720,8 @@ impl VM {
     fn unop(&mut self, op: UnOp) -> Result<ControlFlow> {
         let value = self.pop()?;
         Ok(ControlFlow::Yield(match op {
-            UnOp::Not  => !value,
-            UnOp::Neg  => -value,
+            UnOp::Not  => value.not(),
+            UnOp::Neg  => value.neg(),
             UnOp::Abs  => value.abs()
         }?))
     }
