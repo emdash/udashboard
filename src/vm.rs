@@ -317,7 +317,7 @@ type Result<T> = core::result::Result<T, Error>;
 // TODO: some sensible strategy for handling strings.
 // Todo: add the container types.
 #[derive(Copy, Clone, Debug)]
-enum Value {
+pub enum Value {
     Bool(bool),
     //    Str(Rc<String>),
     Int(i64),
@@ -342,8 +342,8 @@ pub enum TypeTag {
 //
 // The problem with Into is that Into<T>::into() returns a T, and
 // since this is a runtime value, we need to implement Into for
-// Result<T>, not plain T. But the compiler isn't smart enough to
-// deduce the type.
+// Result<T>, not plain T, since it can fail at runtime. The compiler
+// isn't smart enough to deduce the type.
 trait TryInto<T> {
     fn try_into(self) -> Result<T>;
 }
@@ -560,7 +560,7 @@ unop!(
 #[derive(Copy, Clone, Debug)]
 // This type holds constant values as well as storage for strings,
 // constant lists, and objects.
-enum ConstValue {
+pub enum ConstValue {
     Val(Value), /*
     Str(Box<String>),
     List(Box<Vec<Value>>),
@@ -601,7 +601,7 @@ type Env = HashMap<String, ConstValue>;
 //
 // Code is a sequence of instructions.
 // Data is the table of string values.
-struct Program {
+pub struct Program {
     code: Vec<Opcode>,
     data: Vec<ConstValue>
 }
@@ -645,7 +645,7 @@ pub struct VM {
 
 
 // The type of control flow an instruction can have.
-enum ControlFlow {
+pub enum ControlFlow {
     Advance,
     Branch(usize),
     Yield(Value),
@@ -679,7 +679,7 @@ impl VM {
     }
 
     // Helper method for poping from stack and type-checking the result.
-    fn pop(&mut self) -> Result<Value> {
+    pub fn pop(&mut self) -> Result<Value> {
         if let Some(value) = self.stack.pop() {
             Ok(value)
         } else {
@@ -741,24 +741,24 @@ impl VM {
         let b = self.pop()?;
         let a = self.pop()?;
         let ret = match op {
-            BinOp::Add  => a + b,    /*
+            BinOp::Add  => a + b,
             BinOp::Sub  => a - b,
             BinOp::Mul  => a * b,
-            BinOp::Div  => a / b,   
-            BinOp::Pow  => a.pow(b), 
-            BinOp::And  => a && b,
-            BinOp::Or   => a || b,
-            BinOp::Xor  => a ^ b,    
-            BinOp::Lt   => a < b,
-            BinOp::Gt   => a > b,
-            BinOp::Lte  => a <= b,
-            BinOp::Gte  => a >= b,
-            BinOp::Eq   => a == b,
-            BinOp::Shl  => a >> b,
-            BinOp::Shr  => a << b,
-            BinOp::Abs  => a.abs(b),
-            BinOp::Min  => a.min(b),
-            BinOp::Max  => a.max(b) */
+            BinOp::Div  => a / b,
+            BinOp::Pow  => Err(Error::NotImplemented),
+            BinOp::And  => Err(Error::NotImplemented),
+            BinOp::Or   => Err(Error::NotImplemented),
+            BinOp::Xor  => Err(Error::NotImplemented),
+            BinOp::Lt   => Err(Error::NotImplemented),
+            BinOp::Gt   => Err(Error::NotImplemented),
+            BinOp::Lte  => Err(Error::NotImplemented),
+            BinOp::Gte  => Err(Error::NotImplemented),
+            BinOp::Eq   => Err(Error::NotImplemented),
+            BinOp::Shl  => Err(Error::NotImplemented),
+            BinOp::Shr  => Err(Error::NotImplemented),
+            BinOp::Abs  => Err(Error::NotImplemented),
+            BinOp::Min  => Err(Error::NotImplemented),
+            BinOp::Max  => Err(Error::NotImplemented),
         }?;
         Ok(ControlFlow::Yield(ret))
     }
@@ -767,8 +767,8 @@ impl VM {
     fn unop(&mut self, op: UnOp) -> Result<ControlFlow> {
         let value = self.pop()?;
         Ok(ControlFlow::Yield(match op {
-            Not  => !value,
-            Neg  => -value
+            UnOp::Not  => !value,
+            UnOp::Neg  => -value
         }?))
     }
 
