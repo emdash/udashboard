@@ -210,7 +210,6 @@ enum BinOp {
     Eq,
     Shl,
     Shr,
-    Abs,
     Min,
     Max
 }
@@ -220,6 +219,7 @@ enum BinOp {
 enum UnOp {
     Not,
     Neg,
+    Abs,
 }
 
 
@@ -353,6 +353,10 @@ fn expected(expected: TypeTag, got: Value) -> Error {
     Error::TypeError { expect: expected, got: got.into() }
 }
 
+fn type_mismatch(a: Value, b: Value) -> Error {
+    Error::TypeMismatch(a.into(), b.into())
+}
+
 
 impl Value {
     pub fn coerce(self, tt: TypeTag) -> Result<Value> {
@@ -364,9 +368,38 @@ impl Value {
             (Value::Int(v),   TypeTag::Float) => Ok(Value::Float(v as f64)),
             (Value::Float(v), TypeTag::Int)   => Ok(Value::Int(v as i64)),
             (Value::Float(v), TypeTag::Float) => Ok(Value::Float(v)),
-            (a,               b)              =>
-                Err(Error::TypeMismatch(a.into(), b.into()))
+            (a,               b)
+                => Err(Error::TypeMismatch(a.into(), b))
+        }
+    }
 
+    pub fn abs(self) -> Result<Value> {
+        use Value::*;
+        match self {
+            Int(value)   => Ok(Value::Int(value.abs())),
+            Float(value) => Ok(Value::Float(value.abs())),
+            // XXX: need to define TypeTag::Num, which is int or float.
+            value        => Err(expected(TypeTag::Int, value))
+        }
+    }
+
+    pub fn min(self, other: Value) -> Result<Value> {
+        use Value::*;
+        match (self, other) {
+            (Int(a),   Int(b))   => Ok(Value::Int(a.min(b))),
+            (Float(a), Float(b)) => Ok(Value::Float(a.min(b))),
+            // XXX: need to define TypeTag::Num, which is int or float.
+            (a,        b)        => Err(type_mismatch(a, b))
+        }
+    }
+
+    pub fn max(self, other: Value) -> Result<Value> {
+        use Value::*;
+        match (self, other) {
+            (Int(a),   Int(b))   => Ok(Value::Int(a.max(b))),
+            (Float(a), Float(b)) => Ok(Value::Float(a.max(b))),
+            // XXX: need to define TypeTag::Num, which is int or float.
+            (a,        b)        => Err(type_mismatch(a, b))
         }
     }
 }
@@ -755,19 +788,18 @@ impl VM {
             BinOp::Mul  => a * b,
             BinOp::Div  => a / b,
             BinOp::Pow  => Err(Error::NotImplemented),
-            BinOp::And  => Err(Error::NotImplemented),
-            BinOp::Or   => Err(Error::NotImplemented),
-            BinOp::Xor  => Err(Error::NotImplemented),
+            BinOp::And  => a & b,
+            BinOp::Or   => a | b,
+            BinOp::Xor  => a ^ b,
             BinOp::Lt   => Err(Error::NotImplemented),
             BinOp::Gt   => Err(Error::NotImplemented),
             BinOp::Lte  => Err(Error::NotImplemented),
             BinOp::Gte  => Err(Error::NotImplemented),
             BinOp::Eq   => Err(Error::NotImplemented),
-            BinOp::Shl  => Err(Error::NotImplemented),
-            BinOp::Shr  => Err(Error::NotImplemented),
-            BinOp::Abs  => Err(Error::NotImplemented),
-            BinOp::Min  => Err(Error::NotImplemented),
-            BinOp::Max  => Err(Error::NotImplemented),
+            BinOp::Shl  => a >> b,
+            BinOp::Shr  => a << b,
+            BinOp::Min  => a.min(b),
+            BinOp::Max  => a.max(b)
         }?;
         Ok(ControlFlow::Yield(ret))
     }
@@ -777,7 +809,8 @@ impl VM {
         let value = self.pop()?;
         Ok(ControlFlow::Yield(match op {
             UnOp::Not  => !value,
-            UnOp::Neg  => -value
+            UnOp::Neg  => -value,
+            UnOp::Abs  => value.abs()
         }?))
     }
 
