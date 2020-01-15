@@ -1,6 +1,6 @@
 // (C) 2020 Brandon Lewis
 //
-// A virtual machine for a custom graphics language.
+// A virtual machine for a custom Elm-inspired graphics system.
 //
 // This system is optimized for short-running programs that get
 // executed repeatedly on data that changes at "interactive"
@@ -172,20 +172,29 @@
 // - Runs in constant space, with a stack limit set by user at runtime.
 // - Stack-based, postfix order.
 // - Designed for safety and speed.
-// - Will not panic at runtime.
-// - Harvard architecture, separate address space for loads and stores.
-//
-// The hope is that this this architechture will prove utterly
-// impervious to malicious bytecode, while remaining suitable the vast
-// majority of legitimate use cases.
+// - The eventual goal is to be panic-free. Will need tooling to
+//   verify this.
 
 
 use std::collections::HashMap;
+use core::ops::Add;
+use core::ops::Sub;
+use core::ops::Mul;
+use core::ops::Div;
+use core::ops::BitAnd;
+use core::ops::BitOr;
+use core::ops::BitXor;
+use core::ops::Shl;
+use core::ops::Shr;
+use core::ops::Not;
+use core::ops::Neg;
+use core::cmp::PartialEq;
+use core::cmp::PartialOrd;
 
 
 // Arithmetic and logic operations
 #[derive(Copy,Clone)]
-enum Operator {
+enum BinOp {
     Add,
     Sub,
     Mul,
@@ -193,7 +202,6 @@ enum Operator {
     Pow,
     And,
     Or,
-    Not,
     Xor,
     Lt,
     Gt,
@@ -202,10 +210,16 @@ enum Operator {
     Eq,
     Shl,
     Shr,
-    Band,
-    Bor,
-    Bxor,
-    Bneg
+    Abs,
+    Min,
+    Max
+}
+
+
+#[derive(Copy, Clone, Debug)]
+enum UnOp {
+    Not,
+    Neg,
 }
 
 
@@ -230,6 +244,7 @@ enum Operator {
 //   useful in their own right.
 // - use the data section for floating-point immmediates, which isn't
 //   as bad a waste of space as, say, an 8-bit float.
+#[derive(Copy,Clone)]
 enum Immediate {
     Bool(bool),
     Int(i16),    // no issues here, integers are exact.
@@ -271,7 +286,8 @@ enum Opcode {
     Push(Immediate),
     Load,
     Coerce(TypeTag),
-    Alu(Operator),
+    Binary(BinOp),
+    Unary(UnOp),
     Label,
     Call,
     Ret,
@@ -302,33 +318,49 @@ type Result<T> = core::result::Result<T, Error>;
 // Todo: add the container types.
 #[derive(Copy, Clone, Debug)]
 enum Value {
-    Nil,
     Bool(bool),
     //    Str(Rc<String>),
     Int(i64),
     Float(f64),
+    // TODO: different pointer types for different locations.
     Addr(usize)
 }
 
 
 // It kinda bugs me that I need this, but Rust doesn't have a way of
 // exposing an enum's discriminant besides a pattern match.
-//
+#[derive(Copy, Clone, Debug)]
 pub enum TypeTag {
-    Nil,
     Bool,
     Int,
-    Foat,
+    Float,
     Addr
 }
 
 /* I think this is the idiomatic way to do this *******************************/
 
+impl Value {
+    pub fn coerce(self, tt: TypeTag) -> Result<Value> {
+        match (self, tt) {
+            (Value::Bool(v),  TypeTag::Bool)  => Ok(Value::Bool(v)),
+            (Value::Bool(v),  TypeTag::Int)   => Ok(Value::Int(v as i64)),
+            (Value::Int(v),   TypeTag::Bool)  => Ok(Value::Bool(v != 0)),
+            (Value::Int(v),   TypeTag::Int)   => Ok(Value::Int(v)),
+            (Value::Int(v),   TypeTag::Float) => Ok(Value::Float(v as f64)),
+            (Value::Float(v), TypeTag::Int)   => Ok(Value::Int(v as i64)),
+            (Value::Float(v), TypeTag::Float) => Ok(Value::Float(v)),
+            (a,               b)              =>
+                Err(Error::TypeMismatch(a.into(), b.into()))
+
+        }
+    }
+}
+
 impl Into<Result<bool>> for Value {
     fn into(self) -> Result<bool> {
         match self {
             Value::Bool(value) => Ok(value),
-            _ => Err(Error::TypeError("Expected bool")),
+            v => Err(Error::TypeError(TypeTag::Bool)),
         }
     }
 }
@@ -338,7 +370,17 @@ impl Into<Result<i64>> for Value {
     fn into(self) -> Result<i64> {
         match self {
             Value::Int(value) => Ok(value),
-            _ => Err(Error::TypeError("Expected int")),
+            v => Err(Error::TypeError(TypeTag::Int)),
+        }
+    }
+}
+
+
+impl Into<Result<f64>> for Value {
+    fn into(self) -> Result<f64> {
+        match self {
+            Value::Float(value) => Ok(value),
+            v => Err(Error::TypeError(TypeTag::Int)),
         }
     }
 }
@@ -348,22 +390,63 @@ impl Into<Result<usize>> for Value {
     fn into(self) -> Result<usize> {
         match self {
             Value::Addr(value) => Ok(value),
-            _ => Err(Error::TypeError("Expected addr")),
+            _ => Err(Error::TypeError(TypeTag::Addr)),
         }
     }
 }
 
 
 impl From<Immediate> for Value {
-    fn from(self) -> Value {
-        match self {
-            Immediate::Bool(v)  => Value::Bool(v),
-            Immediate::Int(v)   => Value::Int(v),
-            Immediate::Float(v) => Value::Float(v),
-            Immediate::Addr(v)  => Value::Addr(v)
+    fn from(v: Immediate) -> Value {
+        match v {
+            Immediate::Bool(v)  => Value::Bool(v as bool),
+            Immediate::Int(v)   => Value::Int(v as i64),
+            Immediate::Float(v) => Value::Float(v as f64),
+            Immediate::Addr(v)  => Value::Addr(v as usize)
         }
     }
 }
+
+
+impl Into<TypeTag> for Value {
+    fn into(self) -> TypeTag {
+        match self {
+            Value::Bool(_)  => TypeTag::Bool,
+            Value::Int(_)   => TypeTag::Int,
+            Value::Float(_) => TypeTag::Float,
+            Value::Addr(_)  => TypeTag::Addr
+        }
+    }
+}
+
+
+impl Add for Value {
+    type Output = Result<Value>;
+
+    fn add(self, other: Self) -> Self::Output {
+        use Value::*;
+        match (self, other) {
+            (Int(a),   Int(b))  => Ok(  Int(a + b)),
+            (Float(a), Float(b))=> Ok(Float(a + b)),
+            (a, b) => Err(Error::TypeMismatch(a.into(), b.into()))
+        }
+    }
+}
+
+
+/******************************************************************************/
+
+
+#[derive(Copy, Clone, Debug)]
+// This type holds constant values as well as storage for strings,
+// constant lists, and objects.
+enum ConstValue {
+    Val(Value), /*
+    Str(Box<String>),
+    List(Box<Vec<Value>>),
+    Map(Box<HashMap<String, Value>>) */
+}
+
 
 /******************************************************************************/
 
@@ -372,9 +455,11 @@ impl From<Immediate> for Value {
 pub enum Error {
     Underflow,
     Overflow,
+    NotImplemented,
     IllegalOpcode,
     IllegalAddr(usize),
-    TypeError(&'static str),
+    TypeError(TypeTag),
+    TypeMismatch(TypeTag, TypeTag),
     //NameError(Rc<String>),
     IndexError(usize),
     DebugBreak,
@@ -383,7 +468,7 @@ pub enum Error {
 
 
 type Stack = Vec<Value>;
-type Env = HashMap<String, Value>;
+type Env = HashMap<String, ConstValue>;
 
 
 // The internal program representation.
@@ -395,7 +480,7 @@ type Env = HashMap<String, Value>;
 // Data is the table of string values.
 struct Program {
     code: Vec<Opcode>,
-    data: Vec<String>
+    data: Vec<ConstValue>
 }
 
 
@@ -410,17 +495,21 @@ impl Program {
             Err(Error::IllegalAddr(index))
         }
     }
-
+/*
     // Safely retrieve the global static data from the given address.
     //
     // The address is simply the index into the data section.
     pub fn load(&self, index: usize) -> Result<Value> {
         if index < self.data.len() {
-            Ok(self.data[index])
+            match self.data[index] {
+                Constval::Val(v) => Ok(v),
+                _      => Err(Error::NotImplemented)
+            }
         } else {
             Err(Error::IllegalAddr(index))
         }
     }
+*/
 }
 
 
@@ -442,13 +531,21 @@ enum ControlFlow {
 
 // Somewhat naive implementation. Not optimal, but hopefully safe.
 //
-// TODO: Store borrow of Evn internally, so we an make `step` safe,
+// TODO: Store borrow of Env internally, so we an make `step` safe,
 // and then implement `Iterator`.
 //
 // TODO: Implement in-place stack mutation, and benchmark to see if it
 // offers any improvement.
 //
 // TODO: Implement remaining opcodes.
+//
+// TODO: Effects.
+//
+// TODO: Trap mechanism for non-fatal errors. Default to fatal if no
+// handler registered.
+//
+// TODO: Handle integer overflow, and FP NaN as traps, so user code
+// can deal.
 impl VM {
     pub fn new(program: Program, depth: usize) -> VM {
         VM {
@@ -487,7 +584,7 @@ impl VM {
     // can get my head around lifetime parameters in struct
     // definitions, but I am having a hard enough time with the
     // type-checking as it is.
-    unsafe pub fn step(&mut self, env: &Env) -> Result<()> {
+    pub unsafe fn step(&mut self, env: &Env) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
         let result = self.dispatch(opcode)?;
 
@@ -510,11 +607,50 @@ impl VM {
         }
     }
 
-    // Do any binary operation
-    fn binop(&mut self, op: Operator, tt: TypeTag) -> Result<ControlFlow> {
+    // Load from constant data section.
+    pub fn load(&mut self) -> Result<ControlFlow> {
+        Err(Error::NotImplemented)
+    }
+
+
+    // Dispatch opcode to the Value implementation.
+    fn binop(&mut self, op: BinOp) -> Result<ControlFlow> {
         let b = self.pop()?;
         let a = self.pop()?;
-        Ok(ControlFlow::Yield(Value::binop(op, a, b, tt)?))
+        let ret = match op {
+            BinOp::Add  => a + b,    /*
+            BinOp::Sub  => a - b,
+            BinOp::Mul  => a * b,
+            BinOp::Div  => a / b,   
+            BinOp::Pow  => a.pow(b), 
+            BinOp::And  => a && b,
+            BinOp::Or   => a || b,
+            BinOp::Xor  => a ^ b,    
+            BinOp::Lt   => a < b,
+            BinOp::Gt   => a > b,
+            BinOp::Lte  => a <= b,
+            BinOp::Gte  => a >= b,
+            BinOp::Eq   => a == b,
+            BinOp::Shl  => a >> b,
+            BinOp::Shr  => a << b,
+            BinOp::Abs  => a.abs(b),
+            BinOp::Min  => a.min(b),
+            BinOp::Max  => a.max(b) */
+        }?;
+        Ok(ControlFlow::Yield(ret))
+    }
+
+    // Dispatch opcode to Value implementation.
+    fn unop(&mut self, op: UnOp) -> Result<ControlFlow> {
+        let value = self.pop()?;
+        Ok(ControlFlow::Yield(match op {
+            Not  => !value,
+            Neg  => -value
+        }?))
+    }
+
+    fn coerce(&mut self, tt: TypeTag) -> Result<ControlFlow> {
+        Ok(ControlFlow::Yield(self.pop()?.coerce(tt)?))
     }
 
     // Push current PC onto stack, and jump.
@@ -559,22 +695,16 @@ impl VM {
     }
 
     // Discard top of stack
-    fn drop(&mut self) -> Result<ControlFlow> {
-        self.pop()?;
+    fn drop(&mut self, n: u8) -> Result<ControlFlow> {
+        for _ in 0..n { self.pop()?; }
         Ok(ControlFlow::Advance)
     }
 
-    // Duplicate the top of stack N times.
-    fn dup(&mut self, n: usize) -> Result<ControlFlow> {
-        if self.stack.is_empty() {
-            Err(Error::Underflow)
-        } else {
-            let top = self.stack.last().expect("Stack can't be empty");
-            for _ in 0..n {
-                self.push(top.clone());
-            }
-            Ok(ControlFlow::Advance)
-        }
+    // Duplicate top of stack N times.
+    fn dup(&mut self, n: u8) -> Result<ControlFlow> {
+        let top = self.pop()?;
+        for _ in 0..n { self.push(top)?; }
+        Ok(ControlFlow::Advance)
     }
 
     // Swap the top stack values
@@ -604,14 +734,15 @@ impl VM {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),
             Opcode::Coerce(t)   => self.coerce(t),
-            Opcode::Alu(op)     => self.binop(op),
+            Opcode::Binary(op)  => self.binop(op),
+            Opcode::Unary(op)   => self.unop(op),
             Opcode::Label       => self.push(Value::Addr(self.pc)),
             Opcode::Call        => self.call(),
             Opcode::Ret         => self.ret(),
             Opcode::BranchTrue  => self.branch_true(),
             Opcode::BranchFalse => self.branch_false(),
             Opcode::Jump        => self.jump(),
-            Opcode::Drop        => self.drop(),
+            Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Swap        => self.swap(),
             Opcode::Disp        => self.disp(),
