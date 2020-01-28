@@ -551,6 +551,7 @@ pub enum ConstValue {
 
 // This is another crucial value type, especially because it's
 // propagated up the stack.
+#[derive(Copy, Clone, Debug)]
 pub enum Error {
     Underflow,
     Overflow,
@@ -858,6 +859,36 @@ impl VM {
             Opcode::Break       => Err(Error::DebugBreak),
             _                   => Err(Error::IllegalOpcode)
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use Opcode::*;
+    use BinOp::*;
+    use UnOp::*;
+    use Value::*;
+
+    #[test]
+    fn test_simple() {
+        let p = Program {
+            code: vec! {
+                Push(Immediate::Int(1)),
+                Push(Immediate::Int(2)),
+                Binary(Add)
+            },
+            data: vec! {}
+        };
+
+        let mut vm = VM::new(p, 2);
+        let env = HashMap::new();
+        vm.exec(&env);
+
+        let result: i64 = vm.pop().unwrap().try_into().unwrap();
+        assert_eq!(result, 3);
     }
 }
 
