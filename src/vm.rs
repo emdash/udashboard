@@ -291,7 +291,7 @@ enum Opcode {
     Rel(u8),
     Expect,
     Disp,
-    Break
+    Break,
 }
 
 
@@ -316,7 +316,7 @@ pub enum Value {
 
 // It kinda bugs me that I need this, but Rust doesn't have a way of
 // exposing an enum's discriminant besides a pattern match.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TypeTag {
     Bool,
     Int,
@@ -551,7 +551,7 @@ pub enum ConstValue {
 
 // This is another crucial value type, especially because it's
 // propagated up the stack.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Error {
     Underflow,
     Overflow,
@@ -592,8 +592,12 @@ impl Program {
     //
     // The address is simply the index into the instruction sequence.
     fn fetch(&self, index: usize) -> Result<Opcode> {
-        if index < self.code.len() {
+        let len = self.code.len();
+
+        if index < len {
             Ok(self.code[index])
+        } else if index == len {
+            Err(Error::Halt)
         } else {
             Err(Error::IllegalAddr(index))
         }
@@ -667,12 +671,21 @@ impl VM {
         }
     }
 
+    // Return the current stack depth.
+    pub fn depth(&self) -> usize { self.stack.len() }
+
     // Run the entire program until it halts.
     pub fn exec(&mut self, env: &Env) -> Result<()> {
         // Safe, because we have borrowed env and so by contract it
         // is immutable.
-        loop { unsafe { self.step(env)? } }
-    }
+        loop { unsafe {
+            match self.step(env) {
+                Err(Error::Halt) => return Ok(()),
+                Err(x) => return Err(x),
+                Ok(_) => continue
+            }
+        } }
+     }
 
     // Single-step the program.
     //
@@ -885,7 +898,7 @@ mod tests {
 
         let mut vm = VM::new(p, 2);
         let env = HashMap::new();
-        vm.exec(&env);
+        assert_eq!(vm.exec(&env), Ok(()));
 
         let result: i64 = vm.pop().unwrap().try_into().unwrap();
         assert_eq!(result, 3);
