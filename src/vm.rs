@@ -459,6 +459,31 @@ impl Value {
     operator! { bin shr { (Int(a), Int(b)) => Int(a << b) } }
     operator! { un  not { Bool(a) => Bool(!a) } }
     operator! { un  neg { Int(a) => Int(-a) } }
+
+    operator! { bin lt {
+        (Int(a), Int(b)) => Bool(a < b),
+        (Float(a), Float(b)) => Bool(a < b)
+    } }
+
+    operator! { bin gt {
+        (Int(a), Int(b)) => Bool(a > b),
+        (Float(a), Float(b)) => Bool(a > b)
+    } }
+
+    operator! { bin lte {
+        (Int(a), Int(b)) => Bool(a <= b),
+        (Float(a), Float(b)) => Bool(a <= b)
+    } }
+
+    operator! { bin gte {
+        (Int(a), Int(b)) => Bool(a >= b),
+        (Float(a), Float(b)) => Bool(a >= b)
+    } }
+
+    operator! { bin eq {
+        (Int(a), Int(b)) => Bool(a == b),
+        (Float(a), Float(b)) => Bool(a == b)
+    } }
 }
 
 
@@ -703,11 +728,11 @@ impl VM {
             BinOp::And  => a.bitand(b),
             BinOp::Or   => a.bitor(b),
             BinOp::Xor  => a.bitxor(b),
-            BinOp::Lt   => Err(Error::NotImplemented),
-            BinOp::Gt   => Err(Error::NotImplemented),
-            BinOp::Lte  => Err(Error::NotImplemented),
-            BinOp::Gte  => Err(Error::NotImplemented),
-            BinOp::Eq   => Err(Error::NotImplemented),
+            BinOp::Lt   => a.lt(b),
+            BinOp::Gt   => a.gt(b),
+            BinOp::Lte  => a.lte(b),
+            BinOp::Gte  => a.gte(b),
+            BinOp::Eq   => a.eq(b),
             BinOp::Shl  => a.shl(b),
             BinOp::Shr  => a.shl(b),
             BinOp::Min  => a.min(b),
@@ -835,3 +860,4 @@ impl VM {
         }
     }
 }
+
