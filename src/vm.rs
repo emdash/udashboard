@@ -533,6 +533,17 @@ impl Into<TypeTag> for Value {
 }
 
 
+// This simplifies writing unit tests, but it may panic at runtime.
+impl PartialEq for Value {
+    fn eq(&self, rhs: &Self) -> bool {
+        match Value::eq(*self, rhs).unwrap() {
+            Value::Bool(x) => x,
+            _ => panic!("Expected bool")
+        }
+    }
+}
+
+
 /******************************************************************************/
 
 
@@ -876,7 +887,6 @@ impl VM {
 }
 
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,6 +894,31 @@ mod tests {
     use BinOp::*;
     use UnOp::*;
     use Value::*;
+
+    fn test_binary(op: BinOp, a: Immediate, b: Immediate) -> Value {
+        let p = Program {
+            code: vec! {
+                Push(a),
+                Push(b),
+                Binary(op)
+            },
+            data: vec! {}
+        };
+
+        let mut vm = VM::new(p, 2);
+        let env = HashMap::new();
+        assert_eq!(vm.exec(&env), Ok(()));
+
+        assert_eq!(vm.depth(), 1);
+        vm.pop().unwrap()
+    }
+
+    #[test]
+    fn test_add_int() {
+        assert_eq!(
+            test_binary(Add, Immediate::Int(1), Immediate::Int(2)), Int(3)
+        );
+    }
 
     #[test]
     fn test_simple() {
