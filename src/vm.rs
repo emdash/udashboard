@@ -180,7 +180,7 @@ use std::collections::HashMap;
 
 
 // Arithmetic and logic operations
-#[derive(Copy,Clone)]
+#[derive(Copy, Clone, Debug)]
 enum BinOp {
     Add,
     Sub,
@@ -231,7 +231,7 @@ enum UnOp {
 //   useful in their own right.
 // - use the data section for floating-point immmediates, which isn't
 //   as bad a waste of space as, say, an 8-bit float.
-#[derive(Copy,Clone)]
+#[derive(Copy, Clone, Debug)]
 enum Immediate {
     Bool(bool),
     Int(i16),    // no issues here, integers are exact.
@@ -268,7 +268,7 @@ enum Immediate {
 // The good news is that doing it this way gives maximum flexibility
 // for future optimization. For now, just getting it working is top
 // priority.
-#[derive(Copy,Clone)]
+#[derive(Copy, Clone, Debug)]
 enum Opcode {
     Push(Immediate),
     Load,
@@ -455,8 +455,8 @@ impl Value {
         (Int(a),  Int(b))  => Int(a ^ b)
     } }
 
-    operator! { bin shl { (Int(a), Int(b)) => Int(a >> b) } }
-    operator! { bin shr { (Int(a), Int(b)) => Int(a << b) } }
+    operator! { bin shl { (Int(a), Int(b)) => Int(a << b) } }
+    operator! { bin shr { (Int(a), Int(b)) => Int(a >> b) } }
     operator! { un  not { Bool(a) => Bool(!a) } }
     operator! { un  neg { Int(a) => Int(-a) } }
 
@@ -481,13 +481,15 @@ impl Value {
     } }
 
     operator! { bin eq {
+        (Bool(a), Bool(b)) => Bool(a == b),
         (Int(a), Int(b)) => Bool(a == b),
-        (Float(a), Float(b)) => Bool(a == b)
+        (Float(a), Float(b)) => Bool(a == b),
+        (Addr(a), Addr(b)) => Bool(a == b)
     } }
 }
 
 
-// Factor out boilerplate for implementation of TryInto 
+// Factor out boilerplate for implementation of TryInto
 macro_rules! impl_try_into {
     ($variant:ident => $type:ident) => {
         impl TryInto<$type> for Value {
@@ -533,12 +535,11 @@ impl Into<TypeTag> for Value {
 }
 
 
-// This simplifies writing unit tests, but it may panic at runtime.
 impl PartialEq for Value {
     fn eq(&self, rhs: &Self) -> bool {
-        match Value::eq(*self, rhs).unwrap() {
-            Value::Bool(x) => x,
-            _ => panic!("Expected bool")
+        match Value::eq(*self, *rhs) {
+            Ok(Value::Bool(x)) => x,
+            x => panic!("Comparison failed: {:?}", x)
         }
     }
 }
@@ -759,7 +760,7 @@ impl VM {
             BinOp::Gte  => a.gte(b),
             BinOp::Eq   => a.eq(b),
             BinOp::Shl  => a.shl(b),
-            BinOp::Shr  => a.shl(b),
+            BinOp::Shr  => a.shr(b),
             BinOp::Min  => a.min(b),
             BinOp::Max  => a.max(b)
         }?;
@@ -886,7 +887,6 @@ impl VM {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -895,7 +895,12 @@ mod tests {
     use UnOp::*;
     use Value::*;
 
-    fn test_binary(op: BinOp, a: Immediate, b: Immediate) -> Value {
+    fn test_binary(
+        op: BinOp,
+        a: Immediate,
+        b: Immediate,
+        expected: Result<Value>
+    ) {
         let p = Program {
             code: vec! {
                 Push(a),
@@ -907,18 +912,142 @@ mod tests {
 
         let mut vm = VM::new(p, 2);
         let env = HashMap::new();
-        assert_eq!(vm.exec(&env), Ok(()));
+        let status = vm.exec(&env);
+        let result: Result<Value> = match status {
+            Err(e) => {
+                assert_eq!(vm.depth(), 0);
+                Err(e)
+            },
+            Ok(()) => {
+                assert_eq!(vm.depth(), 1);
+                vm.pop()
+            }
+        };
 
-        assert_eq!(vm.depth(), 1);
-        vm.pop().unwrap()
+        println!(
+            "{:?}({:?}, {:?}) == {:?}, expected {:?}",
+            op,
+            a,
+            b,
+            result,
+            expected
+        );
+
+        match (result, expected) {
+            (Ok(r), Ok(e)) => assert_eq!(r, e),
+            (Err(r), Err(e)) => assert_eq!(r, e),
+            _ => panic!("Assertion failed: {:?} != {:?}", result, expected)
+        };
+    }
+
+    fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
+        Err(Error::TypeMismatch(a, b))
     }
 
     #[test]
-    fn test_add_int() {
-        assert_eq!(
-            test_binary(Add, Immediate::Int(1), Immediate::Int(2)), Int(3)
-        );
+    fn test_ops() {
+        use Immediate as I;
+        use TypeTag as TT;
+
+        test_binary(Sub, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Mul, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Div, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Pow, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(And, I::Bool(false), I::Bool(false), Ok(Bool(false)));
+        test_binary(And, I::Bool(false), I::Bool(true),  Ok(Bool(false)));
+        test_binary(And, I::Bool(true),  I::Bool(false), Ok(Bool(false)));
+        test_binary(And, I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
+        test_binary(Or,  I::Bool(false), I::Bool(false), Ok(Bool(false)));
+        test_binary(Or,  I::Bool(false), I::Bool(true),  Ok(Bool(true)));
+        test_binary(Or,  I::Bool(true),  I::Bool(false), Ok(Bool(true)));
+        test_binary(Or,  I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
+        test_binary(Xor, I::Bool(false), I::Bool(false), Ok(Bool(false)));
+        test_binary(Xor, I::Bool(false), I::Bool(true),  Ok(Bool(true)));
+        test_binary(Xor, I::Bool(true),  I::Bool(false), Ok(Bool(true)));
+        test_binary(Xor, I::Bool(true),  I::Bool(true),  Ok(Bool(false)));
+
+        test_binary(Lt,  I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Gt,  I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Lte, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Gte, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Eq,  I::Bool(false), I::Bool(false), Ok(Bool(true)));
+        test_binary(Eq,  I::Bool(false), I::Bool(true),  Ok(Bool(false)));
+        test_binary(Eq,  I::Bool(true),  I::Bool(false), Ok(Bool(false)));
+        test_binary(Eq,  I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
+        test_binary(Shl, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Shr, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Min, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Max, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+
+        test_binary(Sub, I::Int(1), I::Int(2), Ok(Int(-1)));
+        test_binary(Mul, I::Int(2), I::Int(3), Ok(Int(6)));
+        test_binary(Div, I::Int(6), I::Int(2), Ok(Int(3)));
+        test_binary(Pow, I::Int(2), I::Int(3), Ok(Int(8)));
+        test_binary(And, I::Int(2), I::Int(3), Ok(Int(2)));
+        test_binary(Or,  I::Int(2), I::Int(3), Ok(Int(3)));
+        test_binary(Xor, I::Int(2), I::Int(3), Ok(Int(1)));
+        test_binary(Lt,  I::Int(2), I::Int(3), Ok(Bool(true)));
+        test_binary(Gt,  I::Int(2), I::Int(3), Ok(Bool(false)));
+        test_binary(Lte, I::Int(2), I::Int(2), Ok(Bool(true)));
+        test_binary(Gte, I::Int(2), I::Int(2), Ok(Bool(true)));
+        test_binary(Eq,  I::Int(2), I::Int(3), Ok(Bool(false)));
+        test_binary(Eq,  I::Int(2), I::Int(2), Ok(Bool(true)));
+        test_binary(Shl, I::Int(1), I::Int(3), Ok(Int(8)));
+        test_binary(Shr, I::Int(8), I::Int(3), Ok(Int(1)));
+        test_binary(Min, I::Int(2), I::Int(3), Ok(Int(2)));
+        test_binary(Max, I::Int(2), I::Int(3), Ok(Int(3)));
+
+        test_binary(Add, I::Float(1.0), I::Float(2.0), Ok(Float(3.0)));
+        test_binary(Sub, I::Float(1.0), I::Float(2.0), Ok(Float(-1.0)));
+        test_binary(Mul, I::Float(2.0), I::Float(3.0), Ok(Float(6.0)));
+        test_binary(Div, I::Float(6.0), I::Float(2.0), Ok(Float(3.0)));
+        test_binary(Pow, I::Float(2.0), I::Float(3.0), Ok(Float(8.0)));
+        test_binary(And, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Or,  I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Xor, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Lt,  I::Float(2.0), I::Float(3.0), Ok(Bool(true)));
+        test_binary(Gt,  I::Float(2.0), I::Float(3.0), Ok(Bool(false)));
+        test_binary(Lte, I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
+        test_binary(Gte, I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
+        test_binary(Eq,  I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
+        test_binary(Eq,  I::Float(2.0), I::Float(3.0), Ok(Bool(false)));
+        test_binary(Shl, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Shr, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Min, I::Float(2.0), I::Float(3.0), Ok(Float(2.0)));
+        test_binary(Max, I::Float(2.0), I::Float(3.0), Ok(Float(3.0)));
+
+        // Test For Type Mismatch Errors
+        for &op in &[
+            Add,
+            Sub,
+            Mul,
+            Div,
+            Pow,
+            And,
+            Or,
+            Xor,
+            Lt,
+            Gt,
+            Lte,
+            Gte,
+            Eq,
+            Shl,
+            Shr,
+            Min,
+            Max
+        ] {
+            test_binary(op, I::Bool(true), I::Int(2),     tm(TT::Bool, TT::Int));
+            test_binary(op, I::Bool(true), I::Float(2.0), tm(TT::Bool, TT::Float));
+            test_binary(op, I::Bool(true), I::Addr(3),    tm(TT::Bool, TT::Addr));
+            test_binary(op, I::Int(1),     I::Bool(true), tm(TT::Int, TT::Bool));
+            test_binary(op, I::Int(1),     I::Float(2.0), tm(TT::Int, TT::Float));
+            test_binary(op, I::Int(1),     I::Addr(3),    tm(TT::Int, TT::Addr));
+            test_binary(op, I::Float(1.0), I::Bool(true), tm(TT::Float, TT::Bool));
+            test_binary(op, I::Float(1.0), I::Int(2),     tm(TT::Float, TT::Int));
+            test_binary(op, I::Float(1.0), I::Addr(2),    tm(TT::Float, TT::Addr));
+        }
     }
+
 
     #[test]
     fn test_simple() {
