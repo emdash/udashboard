@@ -892,8 +892,14 @@ impl VM {
 
 
 // These tests are, where possible, written against the *behavior* of
-// the VM. *Any* Conforming implementation should be able to pass
+// the VM. *Any* conforming implementation should be able to pass
 // these tests.
+//
+// Any optimizations under consideration should, as a
+// criteria for admissibility, at least pass these tests.
+//
+// As the VM evolves, these tests will constitute part of the
+// specification.
 #[cfg(test)]
 mod tests {
     use super::*;
