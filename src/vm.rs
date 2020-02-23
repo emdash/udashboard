@@ -337,8 +337,8 @@ trait TryInto<T> {
 
 
 // Construct an Error::TypeError from a value.
-fn expected(expected: TypeTag, got: Value) -> Error {
-    Error::TypeError { expect: expected, got: got.into() }
+fn expected(expect: TypeTag, got: Value) -> Error {
+    Error::TypeError { expect, got: got.into() }
 }
 
 // Construct an Error::TypeMismatch from a value.
@@ -458,7 +458,10 @@ impl Value {
     operator! { bin shl { (Int(a), Int(b)) => Int(a << b) } }
     operator! { bin shr { (Int(a), Int(b)) => Int(a >> b) } }
     operator! { un  not { Bool(a) => Bool(!a) } }
-    operator! { un  neg { Int(a) => Int(-a) } }
+    operator! { un  neg {
+        Int(a) => Int(-a),
+        Float(a) => Float(-a)
+    } }
 
     operator! { bin lt {
         (Int(a), Int(b)) => Bool(a < b),
@@ -887,6 +890,10 @@ impl VM {
     }
 }
 
+
+// These tests are, where possible, written against the *behavior* of
+// the VM. *Any* Conforming implementation should be able to pass
+// these tests.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,6 +901,60 @@ mod tests {
     use BinOp::*;
     use UnOp::*;
     use Value::*;
+    use Immediate as I;
+    use TypeTag as TT;
+
+    // Shortcut for creating a TypeMismatch error.
+    fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
+        Err(Error::TypeMismatch(a, b))
+    }
+
+    // Shortcut for creating a TypeError error.
+    fn te(got: TypeTag) -> Result<Value> {
+        Err(Error::TypeError {expect: TypeTag::Int, got})
+    }
+
+    fn test_unary(
+        op: UnOp,
+        a: Immediate,
+        expected: Result<Value>
+    ) {
+        let p = Program {
+            code: vec! {
+                Push(a),
+                Unary(op)
+            },
+            data: vec! {}
+        };
+
+        let mut vm = VM::new(p, 2);
+        let env = HashMap::new();
+        let status = vm.exec(&env);
+        let result: Result<Value> = match status {
+            Err(e) => {
+                assert_eq!(vm.depth(), 0);
+                Err(e)
+            },
+            Ok(()) => {
+                assert_eq!(vm.depth(), 1);
+                vm.pop()
+            }
+        };
+
+        println!(
+            "{:?}({:?}) == {:?}, expected {:?}",
+            op,
+            a,
+            result,
+            expected
+        );
+
+        match (result, expected) {
+            (Ok(r), Ok(e)) => assert_eq!(r, e),
+            (Err(r), Err(e)) => assert_eq!(r, e),
+            _ => panic!("Assertion failed: {:?} != {:?}", result, expected)
+        };
+    }
 
     fn test_binary(
         op: BinOp,
@@ -940,15 +1001,43 @@ mod tests {
         };
     }
 
-    fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
-        Err(Error::TypeMismatch(a, b))
+
+    #[test]
+    fn test_simple() {
+        let p = Program {
+            code: vec! {
+                Push(Immediate::Int(1)),
+                Push(Immediate::Int(2)),
+                Binary(Add)
+            },
+            data: vec! {}
+        };
+
+        let mut vm = VM::new(p, 2);
+        let env = HashMap::new();
+        assert_eq!(vm.exec(&env), Ok(()));
+
+        let result: i64 = vm.pop().unwrap().try_into().unwrap();
+        assert_eq!(result, 3);
     }
 
     #[test]
-    fn test_ops() {
-        use Immediate as I;
-        use TypeTag as TT;
+    fn test_unary_ops() {
+        test_unary(Not, I::Bool(false), Ok(Bool(true)));
+        test_unary(Neg, I::Bool(true), te(TT::Bool));
+        test_unary(Abs, I::Bool(false), te(TT::Bool));
 
+        test_unary(Not, I::Int(1), te(TT::Int));
+        test_unary(Neg, I::Int(1), Ok(Int(-1)));
+        test_unary(Abs, I::Int(-1), Ok(Int(1)));
+
+        test_unary(Not, I::Float(1.0), te(TT::Float));
+        test_unary(Neg, I::Float(1.0), Ok(Float(-1.0)));
+        test_unary(Abs, I::Float(-1.0), Ok(Float(1.0)));
+    }
+
+    #[test]
+    fn test_binary_ops() {
         test_binary(Sub, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
         test_binary(Mul, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
         test_binary(Div, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
@@ -1047,25 +1136,4 @@ mod tests {
             test_binary(op, I::Float(1.0), I::Addr(2),    tm(TT::Float, TT::Addr));
         }
     }
-
-
-    #[test]
-    fn test_simple() {
-        let p = Program {
-            code: vec! {
-                Push(Immediate::Int(1)),
-                Push(Immediate::Int(2)),
-                Binary(Add)
-            },
-            data: vec! {}
-        };
-
-        let mut vm = VM::new(p, 2);
-        let env = HashMap::new();
-        assert_eq!(vm.exec(&env), Ok(()));
-
-        let result: i64 = vm.pop().unwrap().try_into().unwrap();
-        assert_eq!(result, 3);
-    }
 }
-
