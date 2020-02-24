@@ -620,21 +620,20 @@ impl Program {
             Err(Error::IllegalAddr(index))
         }
     }
-/*
+
     // Safely retrieve the global static data from the given address.
     //
     // The address is simply the index into the data section.
     pub fn load(&self, index: usize) -> Result<Value> {
         if index < self.data.len() {
             match self.data[index] {
-                Constval::Val(v) => Ok(v),
+                ConstValue::Val(v) => Ok(v),
                 _      => Err(Error::NotImplemented)
             }
         } else {
             Err(Error::IllegalAddr(index))
         }
     }
-*/
 }
 
 
@@ -743,7 +742,14 @@ impl VM {
 
     // Load from constant data section.
     pub fn load(&mut self) -> Result<ControlFlow> {
-        Err(Error::NotImplemented)
+        match self.pop() {
+            Ok(Value::Addr(address)) => {
+                self.push(self.program.load(address)?);
+                Ok(ControlFlow::Advance)
+            },
+            Ok(v) => Err(expected(BitFlags::from_flag(TypeTag::Addr), v)),
+            Err(e) => Err(e)
+        }
     }
 
 
@@ -912,6 +918,7 @@ mod tests {
     use Value::*;
     use Immediate as I;
     use TypeTag as TT;
+    use ConstValue::*;
 
     // Shortcut for creating a TypeMismatch error.
     fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
@@ -1146,5 +1153,30 @@ mod tests {
         }
     }
 
-    
+    #[test]
+    fn test_load() {
+        assert_evaluates_to(1, 1, Ok(Int(2)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load
+            },
+            data: vec! { Val(Int(2)) }
+        });
+
+        assert_evaluates_to(1, 0, Err(Error::IllegalAddr(1)), Program {
+            code: vec! {
+                Push(I::Addr(1)),
+                Load
+            },
+            data: vec! { Val(Int(2)) }
+        });
+
+        assert_evaluates_to(1, 0, Err(Error::IllegalAddr(0)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load
+            },
+            data: vec! {}
+        });
+    }
 }
