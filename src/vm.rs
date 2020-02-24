@@ -923,91 +923,91 @@ mod tests {
         Err(Error::TypeError {expect, got})
     }
 
+    // Run program to completion in blank environment.
+    //
+    // Return the final VM state and status code.
+    fn eval(
+        stack_limit: usize,
+        expected_final_depth: usize,
+        prog: Program
+    ) -> Result<Value> {
+        let mut vm = VM::new(prog, stack_limit);
+        let env = HashMap::new();
+        let status = vm.exec(&env);
+
+        assert_eq!(vm.depth(), expected_final_depth);
+
+        // Program is assumed to have left result in top-of-stack.
+        match status {
+            Err(e) => {
+                Err(e)
+            },
+            Ok(()) => {
+                vm.pop()
+            }
+        }
+    }
+
+    // Assert that the given program evaluates to the expected result.
+    //
+    // If expected is Ok(), asserts top of stack is equal to `expected_value`.
+    // If expected is Err(), asserts that status =
+    fn assert_evaluates_to(
+        stack_limit: usize,
+        expected_final_depth: usize,
+        expected_value: Result<Value>,
+        prog: Program,
+    ) {
+        let result = eval(stack_limit, expected_final_depth, prog);
+        println!("assert_evaluates_to: {:?} == {:?})", expected_value, result);
+        match (result, expected_value) {
+            (Ok(r), Ok(e)) => assert_eq!(r, e),
+            (Err(r), Err(e)) => assert_eq!(r, e),
+            _ => panic!("Assertion failed: {:?} != {:?}", result, expected_value)
+        }
+    }
+
+    // For testing individual operations, we the expected final stack
+    // depth is easy to compute based on the final result.
+    fn single_op_depth(value: Result<Value>) -> usize {
+        match value {
+            Ok(_) => 1,
+            Err(_) => 0
+        }
+    }
+
+    // Test a unary operation on the given operand.
     fn test_unary(
         op: UnOp,
         a: Immediate,
         expected: Result<Value>
     ) {
-        let p = Program {
+        println!("test_unary({:?})", op);
+        assert_evaluates_to(1, single_op_depth(expected), expected, Program {
             code: vec! {
                 Push(a),
                 Unary(op)
             },
             data: vec! {}
-        };
-
-        let mut vm = VM::new(p, 2);
-        let env = HashMap::new();
-        let status = vm.exec(&env);
-        let result: Result<Value> = match status {
-            Err(e) => {
-                assert_eq!(vm.depth(), 0);
-                Err(e)
-            },
-            Ok(()) => {
-                assert_eq!(vm.depth(), 1);
-                vm.pop()
-            }
-        };
-
-        println!(
-            "{:?}({:?}) == {:?}, expected {:?}",
-            op,
-            a,
-            result,
-            expected
-        );
-
-        match (result, expected) {
-            (Ok(r), Ok(e)) => assert_eq!(r, e),
-            (Err(r), Err(e)) => assert_eq!(r, e),
-            _ => panic!("Assertion failed: {:?} != {:?}", result, expected)
-        };
+        });
     }
 
+    // Test a binary operation on the given operands
     fn test_binary(
         op: BinOp,
         a: Immediate,
         b: Immediate,
         expected: Result<Value>
     ) {
-        let p = Program {
+        println!("test_binary({:?})", op);
+        assert_evaluates_to(2, single_op_depth(expected), expected, Program {
             code: vec! {
                 Push(a),
                 Push(b),
                 Binary(op)
             },
             data: vec! {}
-        };
-
-        let mut vm = VM::new(p, 2);
-        let env = HashMap::new();
-        let status = vm.exec(&env);
-        let result: Result<Value> = match status {
-            Err(e) => {
-                assert_eq!(vm.depth(), 0);
-                Err(e)
-            },
-            Ok(()) => {
-                assert_eq!(vm.depth(), 1);
-                vm.pop()
-            }
-        };
-
-        println!(
-            "{:?}({:?}, {:?}) == {:?}, expected {:?}",
-            op,
-            a,
-            b,
-            result,
-            expected
-        );
-
-        match (result, expected) {
-            (Ok(r), Ok(e)) => assert_eq!(r, e),
-            (Err(r), Err(e)) => assert_eq!(r, e),
-            _ => panic!("Assertion failed: {:?} != {:?}", result, expected)
-        };
+        });
     }
 
 
@@ -1145,4 +1145,6 @@ mod tests {
             test_binary(op, I::Float(1.0), I::Addr(2),    tm(TT::Float, TT::Addr));
         }
     }
+
+    
 }
