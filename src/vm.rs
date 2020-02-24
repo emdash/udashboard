@@ -177,6 +177,7 @@
 
 
 use std::collections::HashMap;
+use enumflags2::BitFlags;
 
 
 // Arithmetic and logic operations
@@ -316,14 +317,16 @@ pub enum Value {
 
 // It kinda bugs me that I need this, but Rust doesn't have a way of
 // exposing an enum's discriminant besides a pattern match.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(BitFlags, Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
 pub enum TypeTag {
-    Bool,
-    Int,
-    Float,
-    Addr
+    Bool  = 0b0001,
+    Int   = 0b0010,
+    Float = 0b0100,
+    Addr  = 0b1000
 }
 
+type TypeSet = BitFlags<TypeTag>;
 
 // Like core::Into, except that it returns a Result.
 //
@@ -337,7 +340,7 @@ trait TryInto<T> {
 
 
 // Construct an Error::TypeError from a value.
-fn expected(expect: TypeTag, got: Value) -> Error {
+fn expected(expect: TypeSet, got: Value) -> Error {
     Error::TypeError { expect, got: got.into() }
 }
 
@@ -357,18 +360,18 @@ fn type_mismatch(a: Value, b: Value) -> Error {
 // table is implictly a runtime error.
 macro_rules! operator {
     // Template for a unary operator
-    (un $name:ident { $( $p:pat => $e:expr ),+ } ) => {
+    (un $name:ident ($expect:expr) { $( $p:pat => $e:expr ),+ } ) => {
         pub fn $name (self) -> Result<Value> {
             // Bringing Value into scope saves us some characters
             use Value::*;
             match self {
                 $($p => Ok($e)),+ ,
-                value => Err(expected(TypeTag::Int, value))
+                value => Err(expected($expect, value))
             }
         }
     };
 
-    // Template ofr a binary operator
+    // Template for a binary operator
     (bin $name:ident { $( $p:pat => $e:expr ),+ } ) => {
         pub fn $name (self, other: Value) -> Result<Value> {
             // Bringing value into scope saves us some characters.
@@ -397,7 +400,7 @@ impl Value {
         }
     }
 
-    operator! { un abs {
+    operator! { un abs (TypeTag::Int | TypeTag::Float) {
         Int(value)   => Value::Int(value.abs()),
         Float(value) => Value::Float(value.abs())
     } }
@@ -457,8 +460,8 @@ impl Value {
 
     operator! { bin shl { (Int(a), Int(b)) => Int(a << b) } }
     operator! { bin shr { (Int(a), Int(b)) => Int(a >> b) } }
-    operator! { un  not { Bool(a) => Bool(!a) } }
-    operator! { un  neg {
+    operator! { un not (BitFlags::from_flag(TypeTag::Bool)) { Bool(a) => Bool(!a) } }
+    operator! { un neg (TypeTag::Int | TypeTag::Float) {
         Int(a) => Int(-a),
         Float(a) => Float(-a)
     } }
@@ -499,7 +502,7 @@ macro_rules! impl_try_into {
             fn try_into(self) -> Result<$type> {
                 match self {
                     Value::$variant(value) => Ok(value),
-                    v => Err(expected(TypeTag::$variant, v))
+                    v => Err(expected(BitFlags::from_flag(TypeTag::$variant), v))
                 }
             }
         }
@@ -574,7 +577,7 @@ pub enum Error {
     IllegalOpcode,
     IllegalAddr(usize),
     TypeError {
-        expect: TypeTag,
+        expect: TypeSet,
         got: TypeTag
     },
     TypeMismatch(TypeTag, TypeTag),
@@ -916,8 +919,8 @@ mod tests {
     }
 
     // Shortcut for creating a TypeError error.
-    fn te(got: TypeTag) -> Result<Value> {
-        Err(Error::TypeError {expect: TypeTag::Int, got})
+    fn te(expect: TypeSet, got: TypeTag) -> Result<Value> {
+        Err(Error::TypeError {expect, got})
     }
 
     fn test_unary(
@@ -1030,14 +1033,14 @@ mod tests {
     #[test]
     fn test_unary_ops() {
         test_unary(Not, I::Bool(false), Ok(Bool(true)));
-        test_unary(Neg, I::Bool(true), te(TT::Bool));
-        test_unary(Abs, I::Bool(false), te(TT::Bool));
+        test_unary(Neg, I::Bool(true), te(TT::Int | TT::Float, TT::Bool));
+        test_unary(Abs, I::Bool(false), te(TT::Int | TT::Float, TT::Bool));
 
-        test_unary(Not, I::Int(1), te(TT::Int));
+        test_unary(Not, I::Int(1), te(!!TT::Bool, TT::Int));
         test_unary(Neg, I::Int(1), Ok(Int(-1)));
         test_unary(Abs, I::Int(-1), Ok(Int(1)));
 
-        test_unary(Not, I::Float(1.0), te(TT::Float));
+        test_unary(Not, I::Float(1.0), te(!!TT::Bool, TT::Float));
         test_unary(Neg, I::Float(1.0), Ok(Float(-1.0)));
         test_unary(Abs, I::Float(-1.0), Ok(Float(1.0)));
     }
