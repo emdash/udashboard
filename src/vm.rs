@@ -280,8 +280,7 @@ enum Opcode {
     Ret,
     BranchTrue,
     BranchFalse,
-    Jump,
-    Repeat,
+    Branch,
     Drop(u8),
     Dup(u8),    // If you need more than 255 copies, something is wrong.
     Index,
@@ -627,7 +626,6 @@ impl Program {
         if index < self.data.len() {
             match self.data[index] {
                 ConstValue::Val(v) => Ok(v),
-                _      => Err(Error::NotImplemented)
             }
         } else {
             Err(Error::IllegalAddr(index))
@@ -799,7 +797,7 @@ impl VM {
         Ok(v)
     }
 
-    // Push current PC onto stack, and jump.
+    // Push current PC onto stack, and branch.
     fn call(&mut self) -> Result<ControlFlow> {
         let target: usize = self.pop_into()?;
         self.push(Value::Addr(self.pc))?;
@@ -835,7 +833,7 @@ impl VM {
     }
 
     // Unconditional branch
-    fn jump(&mut self) -> Result<ControlFlow> {
+    fn branch(&mut self) -> Result<ControlFlow> {
         let addr: usize = self.pop_into()?;
         Ok(ControlFlow::Branch(addr))
     }
@@ -886,7 +884,7 @@ impl VM {
             Opcode::Ret         => self.ret(),
             Opcode::BranchTrue  => self.branch_true(),
             Opcode::BranchFalse => self.branch_false(),
-            Opcode::Jump        => self.jump(),
+            Opcode::Branch      => self.branch(),
             Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Swap        => self.swap(),
@@ -1234,5 +1232,69 @@ mod tests {
             },
             data: vec! {}
         });
+    }
+
+    #[test]
+    fn test_branch() {
+        assert_evaluates_to(3, 1, Ok(Int(105)), Program {
+            code: vec! {
+                Push(I::Int(100)),   // 0  [I(100)]
+                Push(I::Bool(true)), // 1  [I(100) B(T)]
+                Push(I::Addr(7)),    // 2  [I(100) B(T) A(7)]
+                BranchTrue,          // 3  [I(100)]
+                Push(I::Int(10)),    // 4  --
+                Push(I::Addr(8)),    // 5  --
+                Branch,              // 6  --
+                Push(I::Int(5)),     // 7  [I(100) I(5)]
+                Binary(Add),         // 8  [I(105)]
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(3, 1, Ok(Int(110)), Program {
+            code: vec! {
+                Push(I::Int(100)),    // 0  [I(100)]
+                Push(I::Bool(false)), // 1  [I(100) B(F)]
+                Push(I::Addr(7)),     // 2  [I(100) B(F) A(7)]
+                BranchTrue,           // 3  [I(100)]
+                Push(I::Int(10)),     // 4  [I(100) I(10)]
+                Push(I::Addr(8)),     // 5  [I(100) I(10) A(10)]
+                Branch,               // 6  [I(100) I(10)
+                Push(I::Int(5)),      // 7  ---
+                Binary(Add),          // 8  [I(110)]
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(3, 1, Ok(Int(105)), Program {
+            code: vec! {
+                Push(I::Int(100)),    // 0  [I(100)]
+                Push(I::Bool(false)), // 1  [I(100) B(T)]
+                Push(I::Addr(7)),     // 2  [I(100) B(T) A(7)]
+                BranchFalse,          // 3  [I(100)]
+                Push(I::Int(10)),     // 4  --
+                Push(I::Addr(8)),     // 5  --
+                Branch,               // 6  --
+                Push(I::Int(5)),      // 7  [I(100) I(5)]
+                Binary(Add),          // 8  [I(105)]
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(3, 1, Ok(Int(110)), Program {
+            code: vec! {
+                Push(I::Int(100)),    // 0  [I(100)]
+                Push(I::Bool(true)),  // 1  [I(100) B(F)]
+                Push(I::Addr(7)),     // 2  [I(100) B(F) A(7)]
+                BranchFalse,          // 3  [I(100)]
+                Push(I::Int(10)),     // 4  [I(100) I(10)]
+                Push(I::Addr(8)),     // 5  [I(100) I(10) A(10)]
+                Branch,               // 6  [I(100) I(10)
+                Push(I::Int(5)),      // 7  ---
+                Binary(Add),          // 8  [I(110)]
+            },
+            data: vec! {}
+        });
+
     }
 }
