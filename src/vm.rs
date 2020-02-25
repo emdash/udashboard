@@ -1179,4 +1179,62 @@ mod tests {
             data: vec! {}
         });
     }
+
+    #[test]
+    fn test_coerce() {
+        assert_evaluates_to(1, 1, Ok(Int(0)), Program {
+            code: vec! {
+                Push(I::Bool(false)),
+                Coerce(TypeTag::Int)
+            },
+            data: vec! {}
+        });
+        assert_evaluates_to(1, 1, Ok(Int(1)), Program {
+            code: vec! {
+                Push(I::Bool(true)),
+                Coerce(TypeTag::Int)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 1, Ok(Float(1.0)), Program {
+            code: vec! {
+                Push(I::Int(1)),
+                Coerce(TypeTag::Float)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 0, tm(TT::Bool, TT::Addr), Program {
+            code: vec! {
+                Push(I::Bool(true)),
+                Coerce(TypeTag::Addr)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 0, tm(TT::Int, TT::Addr), Program {
+            code: vec! {
+                Push(I::Int(0)),
+                Coerce(TypeTag::Addr)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 0, tm(TT::Float, TT::Addr), Program {
+            code: vec! {
+                Push(I::Float(0.0)),
+                Coerce(TypeTag::Addr)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 0, tm(TT::Addr, TT::Addr), Program {
+            code: vec! {
+                Push(I::Addr(3)),
+                Coerce(TypeTag::Addr)
+            },
+            data: vec! {}
+        });
+    }
 }
