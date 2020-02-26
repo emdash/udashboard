@@ -276,13 +276,14 @@ enum Opcode {
     Coerce(TypeTag),
     Binary(BinOp),
     Unary(UnOp),
-    Call,
-    Ret,
+    Call(u8),   // Arity of function arguments
+    Ret(u8),    // Arity of function return values
     BranchTrue,
     BranchFalse,
     Branch,
     Drop(u8),
     Dup(u8),    // If you need more than 255 copies, something is wrong.
+    Arg(u8),
     Index,
     Dot,
     Get,
@@ -581,6 +582,7 @@ pub enum Error {
     TypeMismatch(TypeTag, TypeTag),
     //NameError(Rc<String>),
     IndexError(usize),
+    Arity(u8, u8),
     DebugBreak,
     Halt,
 }
@@ -633,12 +635,21 @@ impl Program {
     }
 }
 
+#[derive(Copy, Clone)]
+struct StackFrame {
+    return_address: usize,
+    frame_pointer: usize,
+    arity: u8
+}
+
 
 // The entire VM state.
 pub struct VM {
     program: Program,
     stack: Stack,
-    pc: usize,
+    call_stack: Vec<StackFrame>,
+    cur_frame: StackFrame,
+    pc: usize
 }
 
 
@@ -672,6 +683,12 @@ impl VM {
         VM {
             program: program,
             stack: Stack::with_capacity(depth),
+            call_stack: Vec::new(),
+            cur_frame: StackFrame {
+                return_address: 0,
+                frame_pointer: 0,
+                arity: 0
+            },
             pc: 0,
         }
     }
@@ -716,6 +733,10 @@ impl VM {
     // type-checking as it is.
     pub unsafe fn step(&mut self, env: &Env) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
+
+        // TODO: if (trace) {
+        println!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
+
         let result = self.dispatch(opcode, env)?;
 
         match result {
@@ -797,16 +818,26 @@ impl VM {
         Ok(v)
     }
 
-    // Push current PC onto stack, and branch.
-    fn call(&mut self) -> Result<ControlFlow> {
+    // Push frame onto call stack, and branch.
+    fn call(&mut self, arity: u8) -> Result<ControlFlow> {
         let target: usize = self.pop_into()?;
-        self.push(Value::Addr(self.pc))?;
+        // save frame pointer
+        self.call_stack.push(self.cur_frame);
+        self.cur_frame.return_address = self.pc + 1;
+        self.cur_frame.frame_pointer = self.stack.len() - arity as usize;
+        self.cur_frame.arity = arity;
         Ok(ControlFlow::Branch(target))
     }
 
     // Return from subroutine.
-    fn ret(&mut self) -> Result<ControlFlow> {
-        let target: usize = self.pop_into()?;
+    fn ret(&mut self, retvals: u8) -> Result<ControlFlow> {
+        let fp = self.cur_frame.frame_pointer;
+        let target = self.cur_frame.return_address;
+        for _ in 0..self.cur_frame.arity {
+            self.stack.remove(fp);
+        }
+        assert!(self.stack.len() == fp + retvals as usize);
+        self.cur_frame = self.call_stack.pop().unwrap();
         Ok(ControlFlow::Branch(target))
     }
 
@@ -851,6 +882,21 @@ impl VM {
         Ok(ControlFlow::Advance)
     }
 
+    // Return argument relative to stack frame
+    fn arg(&mut self, n: u8) -> Result<ControlFlow> {
+        if n < self.cur_frame.arity {
+            let index = self.cur_frame.frame_pointer + n as usize;
+            if index < self.stack.len() {
+                self.push(self.stack[index])?;
+                Ok(ControlFlow::Advance)
+            } else {
+                Err(Error::Underflow)
+            }
+        } else {
+            Err(Error::Arity(n, self.cur_frame.arity))
+        }
+    }
+
     // Swap the top stack values
     fn swap(&mut self) -> Result<ControlFlow> {
         let b = self.pop()?;
@@ -880,13 +926,14 @@ impl VM {
             Opcode::Coerce(t)   => self.coerce(t),
             Opcode::Binary(op)  => self.binop(op),
             Opcode::Unary(op)   => self.unop(op),
-            Opcode::Call        => self.call(),
-            Opcode::Ret         => self.ret(),
+            Opcode::Call(arity) => self.call(arity),
+            Opcode::Ret(n)      => self.ret(n),
             Opcode::BranchTrue  => self.branch_true(),
             Opcode::BranchFalse => self.branch_false(),
             Opcode::Branch      => self.branch(),
             Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
+            Opcode::Arg(n)      => self.arg(n),
             Opcode::Swap        => self.swap(),
             Opcode::Disp        => self.disp(),
             Opcode::Break       => Err(Error::DebugBreak),
@@ -938,14 +985,13 @@ mod tests {
         let env = HashMap::new();
         let status = vm.exec(&env);
 
-        assert_eq!(vm.depth(), expected_final_depth);
-
         // Program is assumed to have left result in top-of-stack.
         match status {
             Err(e) => {
                 Err(e)
             },
             Ok(()) => {
+                assert_eq!(vm.depth(), expected_final_depth);
                 vm.pop()
             }
         }
@@ -1012,7 +1058,6 @@ mod tests {
             data: vec! {}
         });
     }
-
 
     #[test]
     fn test_simple() {
@@ -1295,6 +1340,92 @@ mod tests {
             },
             data: vec! {}
         });
+    }
 
+    #[test]
+    fn test_call_ret() {
+        // def ftoc(n):
+        //     return 5 * (n - 32) / 9
+        // ftoc(212)
+        assert_evaluates_to(5, 1, Ok(Int(100)), Program {
+            code: vec! {
+                Push(I::Addr(0xA)), // 0
+                Branch,             // 1 goto main
+                Arg(0),             // 2 ftoc:
+                Push(I::Int(32)),   // 3
+                Binary(Sub),        // 4
+                Push(I::Int(5)),    // 5
+                Binary(Mul),        // 6
+                Push(I::Int(9)),    // 7
+                Binary(Div),        // 8
+                Ret(1),             // 9 return 5 * (n - 32) / 9
+                Push(I::Int(212)),  // A main:
+                Push(I::Addr(0x2)), // B
+                Call(1)             // C ftoc(212)
+            },
+            data: vec! {}
+        });
+    }
+
+    #[test]
+    fn test_recursion() {
+        assert_evaluates_to(25, 1, Ok(Int(120)), Program {
+            code: vec! {
+                Push(I::Addr(0x11)), // 00
+                Branch,              // 01 goto main
+                Arg(0),              // 02 fact:
+                Push(I::Int(2)),     // 03
+                Binary(Lte),         // 04
+                Push(I::Addr(0x09)), // 05
+                BranchFalse,         // 06 if n <= 2
+                Arg(0),              // 07
+                Ret(1),              // 08 return n
+                Arg(0),              // 09 else
+                Arg(0),              // 0A
+                Push(I::Int(1)),     // 0B
+                Binary(Sub),         // 0C
+                Push(I::Addr(0x02)), // 0D
+                Call(1),             // 0E
+                Binary(Mul),         // 0F
+                Ret(1),              // 10 return n * fact(n - 1)
+                Push(I::Int(5)),     // 11 main:
+                Push(I::Addr(0x02)), // 12
+                Call(1)              // 13 fact(5)
+            },
+            data: vec! {}
+        });
+    }
+
+    #[test]
+    fn test_binary_recursion() {
+        assert_evaluates_to(25, 1, Ok(Int(34)), Program {
+            code: vec! {
+                Push(I::Addr(0x15)), // 00
+                Branch,              // 01 goto main
+                Arg(0),              // 02 fib:
+                Push(I::Int(1)),     // 03
+                Binary(Lte),         // 04
+                Push(I::Addr(0x09)), // 05
+                BranchFalse,         // 06 if n <= 1
+                Arg(0),              // 07
+                Ret(1),              // 08 return n
+                Arg(0),              // 09 else
+                Push(I::Int(2)),     // 0A
+                Binary(Sub),         // 0B
+                Push(I::Addr(0x02)), // 0C
+                Call(1),             // 0D  fib(n - 2)
+                Arg(0),              // 0E
+                Push(I::Int(1)),     // 0F
+                Binary(Sub),         // 10
+                Push(I::Addr(0x02)), // 11
+                Call(1),             // 12  fib(n - 1)
+                Binary(Add),         // 13
+                Ret(1),              // 14 return fib(n - 2) + fib(n - 1)
+                Push(I::Int(9)),     // 15 main:
+                Push(I::Addr(0x02)), // 16
+                Call(1)              // 17 fib(9)
+            },
+            data: vec! {}
+        });
     }
 }
