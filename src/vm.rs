@@ -1444,4 +1444,14 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_break() {
+        assert_evaluates_to(25, 1, Err(Error::DebugBreak), Program {
+            code: vec! {
+                Push(I::Int(42)),
+                Break
+            },
+            data: vec! {}
+        });
+    }
 }
