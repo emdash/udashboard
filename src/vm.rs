@@ -287,8 +287,6 @@ enum Opcode {
     Index,
     Dot,
     Get,
-    Swap,
-    Rel(u8),
     Expect,
     Disp,
     Break,
@@ -897,14 +895,6 @@ impl VM {
         }
     }
 
-    // Swap the top stack values
-    fn swap(&mut self) -> Result<ControlFlow> {
-        let b = self.pop()?;
-        let a = self.pop()?;
-        self.push(b)?;
-        self.push(a)
-    }
-
     // Emit the top of stack as output.
     fn disp(&mut self) -> Result<ControlFlow> {
         let value = self.pop()?;
@@ -934,7 +924,6 @@ impl VM {
             Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Arg(n)      => self.arg(n),
-            Opcode::Swap        => self.swap(),
             Opcode::Disp        => self.disp(),
             Opcode::Break       => Err(Error::DebugBreak),
             _                   => Err(Error::IllegalOpcode)
