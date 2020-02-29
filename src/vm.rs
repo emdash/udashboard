@@ -1419,6 +1419,20 @@ mod tests {
     }
 
     #[test]
+    fn test_drop() {
+        assert_evaluates_to(25, 1, Ok(Int(42)), Program {
+            code: vec! {
+                Push(I::Int(40)),
+                Push(I::Int(2)),
+                Push(I::Int(100)),
+                Drop(1),
+                Binary(Add)
+            },
+            data: vec! {}
+        });
+    }
+
+    #[test]
     fn test_dup() {
         assert_evaluates_to(25, 1, Ok(Int(42)), Program {
             code: vec! {
