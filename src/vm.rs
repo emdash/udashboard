@@ -876,7 +876,7 @@ impl VM {
     // Duplicate top of stack N times.
     fn dup(&mut self, n: u8) -> Result<ControlFlow> {
         let top = self.pop()?;
-        for _ in 0..n { self.push(top)?; }
+        for _ in 0..(n + 1) { self.push(top)?; }
         Ok(ControlFlow::Advance)
     }
 
@@ -1417,4 +1417,17 @@ mod tests {
             data: vec! {}
         });
     }
+
+    #[test]
+    fn test_dup() {
+        assert_evaluates_to(25, 1, Ok(Int(42)), Program {
+            code: vec! {
+                Push(I::Int(21)),
+                Dup(1),
+                Binary(Add)
+            },
+            data: vec! {}
+        });
+    }
+
 }
