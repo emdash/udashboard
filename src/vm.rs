@@ -338,13 +338,13 @@ trait TryInto<T> {
 
 
 // Construct an Error::TypeError from a value.
-fn expected(expect: TypeSet, got: Value) -> Error {
-    Error::TypeError { expect, got: got.into() }
+fn expected(expect: TypeSet, got: &Value) -> Error {
+    Error::TypeError { expect, got: got.get_type() }
 }
 
 // Construct an Error::TypeMismatch from a value.
-fn type_mismatch(a: Value, b: Value) -> Error {
-    Error::TypeMismatch(a.into(), b.into())
+fn type_mismatch(a: &Value, b: &Value) -> Error {
+    Error::TypeMismatch(a.get_type(), b.get_type())
 }
 
 
@@ -359,7 +359,7 @@ fn type_mismatch(a: Value, b: Value) -> Error {
 macro_rules! operator {
     // Template for a unary operator
     (un $name:ident ($expect:expr) { $( $p:pat => $e:expr ),+ } ) => {
-        pub fn $name (self) -> Result<Value> {
+        pub fn $name (&self) -> Result<Value> {
             // Bringing Value into scope saves us some characters
             use Value::*;
             match self {
@@ -371,7 +371,7 @@ macro_rules! operator {
 
     // Template for a binary operator
     (bin $name:ident { $( $p:pat => $e:expr ),+ } ) => {
-        pub fn $name (self, other: Value) -> Result<Value> {
+        pub fn $name (&self, other: &Value) -> Result<Value> {
             // Bringing value into scope saves us some characters.
             use Value::*;
             match (self, other) {
@@ -394,7 +394,7 @@ impl Value {
             (Value::Float(v), TypeTag::Int)   => Ok(Value::Int(v as i64)),
             (Value::Float(v), TypeTag::Float) => Ok(Value::Float(v)),
             (a,               b)
-                => Err(Error::TypeMismatch(a.into(), b))
+                => Err(Error::TypeMismatch(a.get_type(), b))
         }
     }
 
@@ -405,20 +405,20 @@ impl Value {
 
     operator! { bin pow {
         // XXX: silent coercion to u32.
-        (Int(a),   Int(b))   => Value::Int(a.pow(b as u32)),
-        (Float(a), Float(b)) => Value::Float(a.powf(b))
+        (Int(a),   Int(b))   => Value::Int(a.pow(*b as u32)),
+        (Float(a), Float(b)) => Value::Float(a.powf(*b))
     } }
 
     operator! { bin min {
         // XXX: silent coercion to u32.
-        (Int(a),   Int(b))   => Value::Int(a.min(b)),
-        (Float(a), Float(b)) => Value::Float(a.min(b))
+        (Int(a),   Int(b))   => Value::Int(*a.min(b)),
+        (Float(a), Float(b)) => Value::Float(a.min(*b))
     } }
 
     operator! { bin max {
         // XXX: silent coercion to u32.
-        (Int(a),   Int(b))   => Value::Int(a.max(b)),
-        (Float(a), Float(b)) => Value::Float(a.max(b))
+        (Int(a),   Int(b))   => Value::Int(*a.max(b)),
+        (Float(a), Float(b)) => Value::Float(a.max(*b))
     } }
 
     operator! { bin add {
@@ -490,6 +490,15 @@ impl Value {
         (Float(a), Float(b)) => Bool(a == b),
         (Addr(a), Addr(b)) => Bool(a == b)
     } }
+
+    pub fn get_type(&self) -> TypeTag {
+        match &self {
+            Value::Bool(_)  => TypeTag::Bool,
+            Value::Int(_)   => TypeTag::Int,
+            Value::Float(_) => TypeTag::Float,
+            Value::Addr(_)  => TypeTag::Addr
+        }
+    }
 }
 
 
@@ -500,7 +509,7 @@ macro_rules! impl_try_into {
             fn try_into(self) -> Result<$type> {
                 match self {
                     Value::$variant(value) => Ok(value),
-                    v => Err(expected(BitFlags::from_flag(TypeTag::$variant), v))
+                    v => Err(expected(BitFlags::from_flag(TypeTag::$variant), &v))
                 }
             }
         }
@@ -526,22 +535,10 @@ impl From<Immediate> for Value {
     }
 }
 
-// We can always obtain a TypeTag for a value.
-impl Into<TypeTag> for Value {
-    fn into(self) -> TypeTag {
-        match self {
-            Value::Bool(_)  => TypeTag::Bool,
-            Value::Int(_)   => TypeTag::Int,
-            Value::Float(_) => TypeTag::Float,
-            Value::Addr(_)  => TypeTag::Addr
-        }
-    }
-}
-
 
 impl PartialEq for Value {
     fn eq(&self, rhs: &Self) -> bool {
-        match Value::eq(*self, *rhs) {
+        match Value::eq(self, rhs) {
             Ok(Value::Bool(x)) => x,
             x => panic!("Comparison failed: {:?}", x)
         }
@@ -552,7 +549,7 @@ impl PartialEq for Value {
 /******************************************************************************/
 
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 // This type holds constant values as well as storage for strings,
 // constant lists, and objects.
 pub enum ConstValue {
@@ -788,7 +785,7 @@ impl VM {
                 self.push(self.program.load(address)?);
                 Ok(ControlFlow::Advance)
             },
-            Ok(v) => Err(expected(BitFlags::from_flag(TypeTag::Addr), v)),
+            Ok(v) => Err(expected(BitFlags::from_flag(TypeTag::Addr), &v)),
             Err(e) => Err(e)
         }
     }
@@ -796,7 +793,8 @@ impl VM {
 
     // Dispatch opcode to the Value implementation.
     fn binop(&mut self, op: BinOp) -> Result<ControlFlow> {
-        let b = self.pop()?;
+        let bb = self.pop()?;
+        let b = &bb;
         let a = self.pop()?;
         let ret = match op {
             BinOp::Add  => a.add(b),
@@ -924,7 +922,7 @@ impl VM {
     // Does not consume the stack value.
     fn expect(&self, t: TypeTag) -> Result<ControlFlow> {
         if let Some(&value) = self.stack.last() {
-            let tt: TypeTag = value.into();
+            let tt = value.get_type();
             if t == tt {
                 Ok(ControlFlow::Advance)
             } else {
