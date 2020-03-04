@@ -178,6 +178,7 @@
 
 use std::collections::HashMap;
 use std::io::Stdout;
+use std::rc::Rc;
 use enumflags2::BitFlags;
 
 
@@ -305,11 +306,11 @@ type Result<T> = core::result::Result<T, Error>;
 #[derive(Clone, Debug)]
 pub enum Value {
     Bool(bool),
-    //    Str(Rc<String>),
     Int(i64),
     Float(f64),
     // TODO: different pointer types for different locations.
-    Addr(usize)
+    Addr(usize),
+    Str(Rc<String>),
 }
 
 
@@ -318,10 +319,11 @@ pub enum Value {
 #[derive(BitFlags, Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum TypeTag {
-    Bool  = 0b0001,
-    Int   = 0b0010,
-    Float = 0b0100,
-    Addr  = 0b1000
+    Bool  = 0b00001,
+    Int   = 0b00010,
+    Float = 0b00100,
+    Str   = 0b01000,
+    Addr  = 0b10000
 }
 
 type TypeSet = BitFlags<TypeTag>;
@@ -496,7 +498,8 @@ impl Value {
             Value::Bool(_)  => TypeTag::Bool,
             Value::Int(_)   => TypeTag::Int,
             Value::Float(_) => TypeTag::Float,
-            Value::Addr(_)  => TypeTag::Addr
+            Value::Str(_)   => TypeTag::Str,
+            Value::Addr(_)  => TypeTag::Addr,
         }
     }
 }
@@ -553,10 +556,9 @@ impl PartialEq for Value {
 // This type holds constant values as well as storage for strings,
 // constant lists, and objects.
 pub enum ConstValue {
-    Val(Value), /*
-    Str(Box<String>),
-    List(Box<Vec<Value>>),
-    Map(Box<HashMap<String, Value>>) */
+    Val(Value),
+    List(Rc<Vec<ConstValue>>),
+    Map(Rc<HashMap<String, ConstValue>>)
 }
 
 
