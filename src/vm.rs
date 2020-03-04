@@ -177,6 +177,7 @@
 
 
 use std::collections::HashMap;
+use std::io::Stdout;
 use enumflags2::BitFlags;
 
 
@@ -659,6 +660,30 @@ pub enum ControlFlow {
 }
 
 
+// trait for capturing VM debug output (result of Disp opcode)
+pub trait Output {
+    fn output(&mut self, value: Value);
+}
+
+
+impl Output for Stdout {
+    fn output(&mut self, value: Value) {
+        println!("{:?}", value);
+    }
+}
+
+impl Output for Vec<Value> {
+    fn output(&mut self, value: Value) {
+        self.push(value)
+    }
+}
+
+impl Output for () {
+    fn output(&mut self, value: Value) {
+    }
+}
+
+
 // Somewhat naive implementation. Not optimal, but hopefully safe.
 //
 // TODO: Store borrow of Env internally, so we an make `step` safe,
@@ -704,11 +729,11 @@ impl VM {
     pub fn depth(&self) -> usize { self.stack.len() }
 
     // Run the entire program until it halts.
-    pub fn exec(&mut self, env: &Env) -> Result<()> {
+    pub fn exec(&mut self, env: &Env, out: &mut impl Output) -> Result<()> {
         // Safe, because we have borrowed env and so by contract it
         // is immutable.
         loop { unsafe {
-            match self.step(env) {
+            match self.step(env, out) {
                 Err(Error::Halt) => return Ok(()),
                 Err(x) => return Err(x),
                 Ok(_) => continue
@@ -729,13 +754,13 @@ impl VM {
     // can get my head around lifetime parameters in struct
     // definitions, but I am having a hard enough time with the
     // type-checking as it is.
-    pub unsafe fn step(&mut self, env: &Env) -> Result<()> {
+    pub unsafe fn step(&mut self, env: &Env, out: &mut impl Output) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
 
         // TODO: if (trace) {
         println!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
 
-        let result = self.dispatch(opcode, env)?;
+        let result = self.dispatch(opcode, env, out)?;
 
         match result {
             ControlFlow::Advance      => {self.pc += 1;},
@@ -914,9 +939,9 @@ impl VM {
     }
 
     // Emit the top of stack as output.
-    fn disp(&mut self) -> Result<ControlFlow> {
+    fn disp(&mut self, out: &mut Output) -> Result<ControlFlow> {
         let value = self.pop()?;
-        self.emit(value);
+        out.output(value);
         Ok(ControlFlow::Advance)
     }
 
@@ -927,7 +952,7 @@ impl VM {
     }
 
     // Dispatch table for built-in opcodes
-    fn dispatch(&mut self, op: Opcode, _: &Env) -> Result<ControlFlow> {
+    fn dispatch(&mut self, op: Opcode, _: &Env, out: &mut Output) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),
@@ -943,7 +968,7 @@ impl VM {
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Arg(n)      => self.arg(n),
             Opcode::Expect(t)   => self.expect(t),
-            Opcode::Disp        => self.disp(),
+            Opcode::Disp        => self.disp(out),
             Opcode::Break       => Err(Error::DebugBreak),
             _                   => Err(Error::IllegalOpcode)
         }
@@ -991,7 +1016,7 @@ mod tests {
     ) -> Result<Value> {
         let mut vm = VM::new(prog, stack_limit);
         let env = HashMap::new();
-        let status = vm.exec(&env);
+        let status = vm.exec(&env, &mut ());
 
         // Program is assumed to have left result in top-of-stack.
         match status {
@@ -1080,7 +1105,7 @@ mod tests {
 
         let mut vm = VM::new(p, 2);
         let env = HashMap::new();
-        assert_eq!(vm.exec(&env), Ok(()));
+        assert_eq!(vm.exec(&env, &mut ()), Ok(()));
 
         let result: i64 = vm.pop().unwrap().try_into().unwrap();
         assert_eq!(result, 3);
@@ -1506,5 +1531,28 @@ mod tests {
             },
             data: vec! {}
         });
+    }
+    #[test]
+    fn test_disp() {
+        let mut output = Vec::new();
+        let prog = Program {
+            code: vec! {
+                Push(I::Int(1)),
+                Disp,
+                Push(I::Bool(true)),
+                Disp,
+                Push(I::Float(1.0)),
+                Disp
+            },
+            data: vec! {}
+        };
+        let mut vm = VM::new(prog, 1);
+        let env = HashMap::new();
+        let status = vm.exec(&env, &mut output);
+
+        assert_eq!(
+            output,
+            vec! {Value::Int(1), Value::Bool(true), Value::Float(1.0)}
+        );
     }
 }
