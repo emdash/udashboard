@@ -287,7 +287,7 @@ enum Opcode {
     Index,
     Dot,
     Get,
-    Expect,
+    Expect(TypeTag),
     Disp,
     Break,
 }
@@ -895,6 +895,24 @@ impl VM {
         }
     }
 
+    // Check that top-of-stack matches the given type.
+    // Does not consume the stack value.
+    fn expect(&self, t: TypeTag) -> Result<ControlFlow> {
+        if let Some(&value) = self.stack.last() {
+            let tt: TypeTag = value.into();
+            if t == tt {
+                Ok(ControlFlow::Advance)
+            } else {
+                Err(Error::TypeError {
+                    expect: TypeSet::from_flag(t),
+                    got: tt
+                })
+            }
+        } else {
+            Err(Error::Underflow)
+        }
+    }
+
     // Emit the top of stack as output.
     fn disp(&mut self) -> Result<ControlFlow> {
         let value = self.pop()?;
@@ -924,6 +942,7 @@ impl VM {
             Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Arg(n)      => self.arg(n),
+            Opcode::Expect(t)   => self.expect(t),
             Opcode::Disp        => self.disp(),
             Opcode::Break       => Err(Error::DebugBreak),
             _                   => Err(Error::IllegalOpcode)
@@ -1450,6 +1469,40 @@ mod tests {
             code: vec! {
                 Push(I::Int(42)),
                 Break
+            },
+            data: vec! {}
+        });
+    }
+
+    #[test]
+    fn test_expect() {
+        assert_evaluates_to(1, 1, te(!!TT::Bool, TT::Int), Program {
+            code: vec! {
+                Push(I::Int(1)),
+                Expect(TT::Bool)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 1, te(!!TT::Int, TT::Bool), Program {
+            code: vec! {
+                Push(I::Bool(true)),
+                Expect(TT::Int)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 1, Ok(Float(3.0)), Program {
+            code: vec! {
+                Push(I::Float(3.0)),
+                Expect(TT::Float)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(1, 1, Err(Error::Underflow), Program {
+            code: vec! {
+                Expect(TT::Addr)
             },
             data: vec! {}
         });
