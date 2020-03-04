@@ -302,7 +302,7 @@ type Result<T> = core::result::Result<T, Error>;
 //
 // TODO: some sensible strategy for handling strings.
 // Todo: add the container types.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Bool(bool),
     //    Str(Rc<String>),
@@ -622,8 +622,8 @@ impl Program {
     // The address is simply the index into the data section.
     pub fn load(&self, index: usize) -> Result<Value> {
         if index < self.data.len() {
-            match self.data[index] {
-                ConstValue::Val(v) => Ok(v),
+            match &self.data[index] {
+                ConstValue::Val(v) => Ok(v.clone()),
             }
         } else {
             Err(Error::IllegalAddr(index))
@@ -676,7 +676,7 @@ impl Output for Vec<Value> {
 }
 
 impl Output for () {
-    fn output(&mut self, value: Value) {
+    fn output(&mut self, _value: Value) {
     }
 }
 
@@ -782,7 +782,7 @@ impl VM {
     pub fn load(&mut self) -> Result<ControlFlow> {
         match self.pop() {
             Ok(Value::Addr(address)) => {
-                self.push(self.program.load(address)?);
+                self.push(self.program.load(address)?)?;
                 Ok(ControlFlow::Advance)
             },
             Ok(v) => Err(expected(BitFlags::from_flag(TypeTag::Addr), &v)),
@@ -899,7 +899,7 @@ impl VM {
     // Duplicate top of stack N times.
     fn dup(&mut self, n: u8) -> Result<ControlFlow> {
         let top = self.pop()?;
-        for _ in 0..(n + 1) { self.push(top)?; }
+        for _ in 0..(n + 1) { self.push(top.clone())?; }
         Ok(ControlFlow::Advance)
     }
 
@@ -908,7 +908,7 @@ impl VM {
         if n < self.cur_frame.arity {
             let index = self.cur_frame.frame_pointer + n as usize;
             if index < self.stack.len() {
-                self.push(self.stack[index])?;
+                self.push(self.stack[index].clone())?;
                 Ok(ControlFlow::Advance)
             } else {
                 Err(Error::Underflow)
@@ -921,7 +921,7 @@ impl VM {
     // Check that top-of-stack matches the given type.
     // Does not consume the stack value.
     fn expect(&self, t: TypeTag) -> Result<ControlFlow> {
-        if let Some(&value) = self.stack.last() {
+        if let Some(value) = self.stack.last() {
             let tt = value.get_type();
             if t == tt {
                 Ok(ControlFlow::Advance)
@@ -1039,17 +1039,17 @@ mod tests {
         prog: Program,
     ) {
         let result = eval(stack_limit, expected_final_depth, prog);
-        println!("assert_evaluates_to: {:?} == {:?})", expected_value, result);
+        println!("assert_evaluates_to: {:?} == {:?})", &expected_value, &result);
         match (result, expected_value) {
             (Ok(r), Ok(e)) => assert_eq!(r, e),
             (Err(r), Err(e)) => assert_eq!(r, e),
-            _ => panic!("Assertion failed: {:?} != {:?}", result, expected_value)
+            (r, e) => panic!("Assertion failed: {:?} != {:?}", r, e)
         }
     }
 
     // For testing individual operations, we the expected final stack
     // depth is easy to compute based on the final result.
-    fn single_op_depth(value: Result<Value>) -> usize {
+    fn single_op_depth(value: &Result<Value>) -> usize {
         match value {
             Ok(_) => 1,
             Err(_) => 0
@@ -1063,7 +1063,7 @@ mod tests {
         expected: Result<Value>
     ) {
         println!("test_unary({:?})", op);
-        assert_evaluates_to(1, single_op_depth(expected), expected, Program {
+        assert_evaluates_to(1, single_op_depth(&expected), expected, Program {
             code: vec! {
                 Push(a),
                 Unary(op)
@@ -1080,7 +1080,7 @@ mod tests {
         expected: Result<Value>
     ) {
         println!("test_binary({:?})", op);
-        assert_evaluates_to(2, single_op_depth(expected), expected, Program {
+        assert_evaluates_to(2, single_op_depth(&expected), expected, Program {
             code: vec! {
                 Push(a),
                 Push(b),
@@ -1530,6 +1530,7 @@ mod tests {
             data: vec! {}
         });
     }
+
     #[test]
     fn test_disp() {
         let mut output = Vec::new();
