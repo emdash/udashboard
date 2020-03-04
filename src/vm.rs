@@ -1045,34 +1045,37 @@ mod tests {
     // Test a unary operation on the given operand.
     fn test_unary(
         op: UnOp,
-        a: Immediate,
+        value: Value,
         expected: Result<Value>
     ) {
         println!("test_unary({:?})", op);
         assert_evaluates_to(1, single_op_depth(&expected), expected, Program {
             code: vec! {
-                Push(a),
+                Push(I::Addr(0)),
+                Load,
                 Unary(op)
             },
-            data: vec! {}
+            data: vec! {value}
         });
     }
 
     // Test a binary operation on the given operands
     fn test_binary(
         op: BinOp,
-        a: Immediate,
-        b: Immediate,
+        a: Value,
+        b: Value,
         expected: Result<Value>
     ) {
         println!("test_binary({:?})", op);
         assert_evaluates_to(2, single_op_depth(&expected), expected, Program {
             code: vec! {
-                Push(a),
-                Push(b),
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(1)),
+                Load,
                 Binary(op)
             },
-            data: vec! {}
+            data: vec! {a, b}
         });
     }
 
@@ -1097,87 +1100,87 @@ mod tests {
 
     #[test]
     fn test_unary_ops() {
-        test_unary(Not, I::Bool(false), Ok(Bool(true)));
-        test_unary(Neg, I::Bool(true), te(TT::Int | TT::Float, TT::Bool));
-        test_unary(Abs, I::Bool(false), te(TT::Int | TT::Float, TT::Bool));
+        test_unary(Not, Bool(false), Ok(Bool(true)));
+        test_unary(Neg, Bool(true), te(TT::Int | TT::Float, TT::Bool));
+        test_unary(Abs, Bool(false), te(TT::Int | TT::Float, TT::Bool));
 
-        test_unary(Not, I::Int(1), te(!!TT::Bool, TT::Int));
-        test_unary(Neg, I::Int(1), Ok(Int(-1)));
-        test_unary(Abs, I::Int(-1), Ok(Int(1)));
+        test_unary(Not, Int(1), te(!!TT::Bool, TT::Int));
+        test_unary(Neg, Int(1), Ok(Int(-1)));
+        test_unary(Abs, Int(-1), Ok(Int(1)));
 
-        test_unary(Not, I::Float(1.0), te(!!TT::Bool, TT::Float));
-        test_unary(Neg, I::Float(1.0), Ok(Float(-1.0)));
-        test_unary(Abs, I::Float(-1.0), Ok(Float(1.0)));
+        test_unary(Not, Float(1.0), te(!!TT::Bool, TT::Float));
+        test_unary(Neg, Float(1.0), Ok(Float(-1.0)));
+        test_unary(Abs, Float(-1.0), Ok(Float(1.0)));
     }
 
     #[test]
     fn test_binary_ops() {
-        test_binary(Sub, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Mul, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Div, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Pow, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(And, I::Bool(false), I::Bool(false), Ok(Bool(false)));
-        test_binary(And, I::Bool(false), I::Bool(true),  Ok(Bool(false)));
-        test_binary(And, I::Bool(true),  I::Bool(false), Ok(Bool(false)));
-        test_binary(And, I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
-        test_binary(Or,  I::Bool(false), I::Bool(false), Ok(Bool(false)));
-        test_binary(Or,  I::Bool(false), I::Bool(true),  Ok(Bool(true)));
-        test_binary(Or,  I::Bool(true),  I::Bool(false), Ok(Bool(true)));
-        test_binary(Or,  I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
-        test_binary(Xor, I::Bool(false), I::Bool(false), Ok(Bool(false)));
-        test_binary(Xor, I::Bool(false), I::Bool(true),  Ok(Bool(true)));
-        test_binary(Xor, I::Bool(true),  I::Bool(false), Ok(Bool(true)));
-        test_binary(Xor, I::Bool(true),  I::Bool(true),  Ok(Bool(false)));
+        test_binary(Sub, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Mul, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Div, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Pow, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(And, Bool(false), Bool(false), Ok(Bool(false)));
+        test_binary(And, Bool(false), Bool(true),  Ok(Bool(false)));
+        test_binary(And, Bool(true),  Bool(false), Ok(Bool(false)));
+        test_binary(And, Bool(true),  Bool(true),  Ok(Bool(true)));
+        test_binary(Or,  Bool(false), Bool(false), Ok(Bool(false)));
+        test_binary(Or,  Bool(false), Bool(true),  Ok(Bool(true)));
+        test_binary(Or,  Bool(true),  Bool(false), Ok(Bool(true)));
+        test_binary(Or,  Bool(true),  Bool(true),  Ok(Bool(true)));
+        test_binary(Xor, Bool(false), Bool(false), Ok(Bool(false)));
+        test_binary(Xor, Bool(false), Bool(true),  Ok(Bool(true)));
+        test_binary(Xor, Bool(true),  Bool(false), Ok(Bool(true)));
+        test_binary(Xor, Bool(true),  Bool(true),  Ok(Bool(false)));
 
-        test_binary(Lt,  I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Gt,  I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Lte, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Gte, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Eq,  I::Bool(false), I::Bool(false), Ok(Bool(true)));
-        test_binary(Eq,  I::Bool(false), I::Bool(true),  Ok(Bool(false)));
-        test_binary(Eq,  I::Bool(true),  I::Bool(false), Ok(Bool(false)));
-        test_binary(Eq,  I::Bool(true),  I::Bool(true),  Ok(Bool(true)));
-        test_binary(Shl, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Shr, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Min, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
-        test_binary(Max, I::Bool(false), I::Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Lt,  Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Gt,  Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Lte, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Gte, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Eq,  Bool(false), Bool(false), Ok(Bool(true)));
+        test_binary(Eq,  Bool(false), Bool(true),  Ok(Bool(false)));
+        test_binary(Eq,  Bool(true),  Bool(false), Ok(Bool(false)));
+        test_binary(Eq,  Bool(true),  Bool(true),  Ok(Bool(true)));
+        test_binary(Shl, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Shr, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Min, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
+        test_binary(Max, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
 
-        test_binary(Sub, I::Int(1), I::Int(2), Ok(Int(-1)));
-        test_binary(Mul, I::Int(2), I::Int(3), Ok(Int(6)));
-        test_binary(Div, I::Int(6), I::Int(2), Ok(Int(3)));
-        test_binary(Pow, I::Int(2), I::Int(3), Ok(Int(8)));
-        test_binary(And, I::Int(2), I::Int(3), Ok(Int(2)));
-        test_binary(Or,  I::Int(2), I::Int(3), Ok(Int(3)));
-        test_binary(Xor, I::Int(2), I::Int(3), Ok(Int(1)));
-        test_binary(Lt,  I::Int(2), I::Int(3), Ok(Bool(true)));
-        test_binary(Gt,  I::Int(2), I::Int(3), Ok(Bool(false)));
-        test_binary(Lte, I::Int(2), I::Int(2), Ok(Bool(true)));
-        test_binary(Gte, I::Int(2), I::Int(2), Ok(Bool(true)));
-        test_binary(Eq,  I::Int(2), I::Int(3), Ok(Bool(false)));
-        test_binary(Eq,  I::Int(2), I::Int(2), Ok(Bool(true)));
-        test_binary(Shl, I::Int(1), I::Int(3), Ok(Int(8)));
-        test_binary(Shr, I::Int(8), I::Int(3), Ok(Int(1)));
-        test_binary(Min, I::Int(2), I::Int(3), Ok(Int(2)));
-        test_binary(Max, I::Int(2), I::Int(3), Ok(Int(3)));
+        test_binary(Sub, Int(1), Int(2), Ok(Int(-1)));
+        test_binary(Mul, Int(2), Int(3), Ok(Int(6)));
+        test_binary(Div, Int(6), Int(2), Ok(Int(3)));
+        test_binary(Pow, Int(2), Int(3), Ok(Int(8)));
+        test_binary(And, Int(2), Int(3), Ok(Int(2)));
+        test_binary(Or,  Int(2), Int(3), Ok(Int(3)));
+        test_binary(Xor, Int(2), Int(3), Ok(Int(1)));
+        test_binary(Lt,  Int(2), Int(3), Ok(Bool(true)));
+        test_binary(Gt,  Int(2), Int(3), Ok(Bool(false)));
+        test_binary(Lte, Int(2), Int(2), Ok(Bool(true)));
+        test_binary(Gte, Int(2), Int(2), Ok(Bool(true)));
+        test_binary(Eq,  Int(2), Int(3), Ok(Bool(false)));
+        test_binary(Eq,  Int(2), Int(2), Ok(Bool(true)));
+        test_binary(Shl, Int(1), Int(3), Ok(Int(8)));
+        test_binary(Shr, Int(8), Int(3), Ok(Int(1)));
+        test_binary(Min, Int(2), Int(3), Ok(Int(2)));
+        test_binary(Max, Int(2), Int(3), Ok(Int(3)));
 
-        test_binary(Add, I::Float(1.0), I::Float(2.0), Ok(Float(3.0)));
-        test_binary(Sub, I::Float(1.0), I::Float(2.0), Ok(Float(-1.0)));
-        test_binary(Mul, I::Float(2.0), I::Float(3.0), Ok(Float(6.0)));
-        test_binary(Div, I::Float(6.0), I::Float(2.0), Ok(Float(3.0)));
-        test_binary(Pow, I::Float(2.0), I::Float(3.0), Ok(Float(8.0)));
-        test_binary(And, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
-        test_binary(Or,  I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
-        test_binary(Xor, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
-        test_binary(Lt,  I::Float(2.0), I::Float(3.0), Ok(Bool(true)));
-        test_binary(Gt,  I::Float(2.0), I::Float(3.0), Ok(Bool(false)));
-        test_binary(Lte, I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
-        test_binary(Gte, I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
-        test_binary(Eq,  I::Float(2.0), I::Float(2.0), Ok(Bool(true)));
-        test_binary(Eq,  I::Float(2.0), I::Float(3.0), Ok(Bool(false)));
-        test_binary(Shl, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
-        test_binary(Shr, I::Float(2.0), I::Float(3.0), tm(TT::Float, TT::Float));
-        test_binary(Min, I::Float(2.0), I::Float(3.0), Ok(Float(2.0)));
-        test_binary(Max, I::Float(2.0), I::Float(3.0), Ok(Float(3.0)));
+        test_binary(Add, Float(1.0), Float(2.0), Ok(Float(3.0)));
+        test_binary(Sub, Float(1.0), Float(2.0), Ok(Float(-1.0)));
+        test_binary(Mul, Float(2.0), Float(3.0), Ok(Float(6.0)));
+        test_binary(Div, Float(6.0), Float(2.0), Ok(Float(3.0)));
+        test_binary(Pow, Float(2.0), Float(3.0), Ok(Float(8.0)));
+        test_binary(And, Float(2.0), Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Or,  Float(2.0), Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Xor, Float(2.0), Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Lt,  Float(2.0), Float(3.0), Ok(Bool(true)));
+        test_binary(Gt,  Float(2.0), Float(3.0), Ok(Bool(false)));
+        test_binary(Lte, Float(2.0), Float(2.0), Ok(Bool(true)));
+        test_binary(Gte, Float(2.0), Float(2.0), Ok(Bool(true)));
+        test_binary(Eq,  Float(2.0), Float(2.0), Ok(Bool(true)));
+        test_binary(Eq,  Float(2.0), Float(3.0), Ok(Bool(false)));
+        test_binary(Shl, Float(2.0), Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Shr, Float(2.0), Float(3.0), tm(TT::Float, TT::Float));
+        test_binary(Min, Float(2.0), Float(3.0), Ok(Float(2.0)));
+        test_binary(Max, Float(2.0), Float(3.0), Ok(Float(3.0)));
 
         // Test For Type Mismatch Errors
         for &op in &[
@@ -1199,15 +1202,15 @@ mod tests {
             Min,
             Max
         ] {
-            test_binary(op, I::Bool(true), I::Int(2),     tm(TT::Bool, TT::Int));
-            test_binary(op, I::Bool(true), I::Float(2.0), tm(TT::Bool, TT::Float));
-            test_binary(op, I::Bool(true), I::Addr(3),    tm(TT::Bool, TT::Addr));
-            test_binary(op, I::Int(1),     I::Bool(true), tm(TT::Int, TT::Bool));
-            test_binary(op, I::Int(1),     I::Float(2.0), tm(TT::Int, TT::Float));
-            test_binary(op, I::Int(1),     I::Addr(3),    tm(TT::Int, TT::Addr));
-            test_binary(op, I::Float(1.0), I::Bool(true), tm(TT::Float, TT::Bool));
-            test_binary(op, I::Float(1.0), I::Int(2),     tm(TT::Float, TT::Int));
-            test_binary(op, I::Float(1.0), I::Addr(2),    tm(TT::Float, TT::Addr));
+            test_binary(op, Bool(true), Int(2),     tm(TT::Bool, TT::Int));
+            test_binary(op, Bool(true), Float(2.0), tm(TT::Bool, TT::Float));
+            test_binary(op, Bool(true), Addr(3),    tm(TT::Bool, TT::Addr));
+            test_binary(op, Int(1),     Bool(true), tm(TT::Int, TT::Bool));
+            test_binary(op, Int(1),     Float(2.0), tm(TT::Int, TT::Float));
+            test_binary(op, Int(1),     Addr(3),    tm(TT::Int, TT::Addr));
+            test_binary(op, Float(1.0), Bool(true), tm(TT::Float, TT::Bool));
+            test_binary(op, Float(1.0), Int(2),     tm(TT::Float, TT::Int));
+            test_binary(op, Float(1.0), Addr(2),    tm(TT::Float, TT::Addr));
         }
     }
 
