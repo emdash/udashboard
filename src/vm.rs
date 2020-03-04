@@ -551,19 +551,6 @@ impl PartialEq for Value {
 
 /******************************************************************************/
 
-
-#[derive(Clone, Debug)]
-// This type holds constant values as well as storage for strings,
-// constant lists, and objects.
-pub enum ConstValue {
-    Val(Value),
-    List(Rc<Vec<ConstValue>>),
-    Map(Rc<HashMap<String, ConstValue>>)
-}
-
-
-/******************************************************************************/
-
 // This is another crucial value type, especially because it's
 // propagated up the stack.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -587,7 +574,7 @@ pub enum Error {
 
 
 type Stack = Vec<Value>;
-type Env = HashMap<String, ConstValue>;
+type Env = HashMap<String, Value>;
 
 
 // The internal program representation.
@@ -599,7 +586,7 @@ type Env = HashMap<String, ConstValue>;
 // Data is the table of string values.
 pub struct Program {
     code: Vec<Opcode>,
-    data: Vec<ConstValue>
+    data: Vec<Value>
 }
 
 
@@ -624,9 +611,7 @@ impl Program {
     // The address is simply the index into the data section.
     pub fn load(&self, index: usize) -> Result<Value> {
         if index < self.data.len() {
-            match &self.data[index] {
-                ConstValue::Val(v) => Ok(v.clone()),
-            }
+            Ok(self.data[index].clone())
         } else {
             Err(Error::IllegalAddr(index))
         }
@@ -994,7 +979,6 @@ mod tests {
     use Value::*;
     use Immediate as I;
     use TypeTag as TT;
-    use ConstValue::*;
 
     // Shortcut for creating a TypeMismatch error.
     fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
@@ -1234,7 +1218,7 @@ mod tests {
                 Push(I::Addr(0)),
                 Load
             },
-            data: vec! { Val(Int(2)) }
+            data: vec! { Int(2) }
         });
 
         assert_evaluates_to(1, 0, Err(Error::IllegalAddr(1)), Program {
@@ -1242,7 +1226,7 @@ mod tests {
                 Push(I::Addr(1)),
                 Load
             },
-            data: vec! { Val(Int(2)) }
+            data: vec! { Int(2) }
         });
 
         assert_evaluates_to(1, 0, Err(Error::IllegalAddr(0)), Program {
