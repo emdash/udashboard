@@ -568,7 +568,7 @@ impl PartialEq for Value {
 
 // This is another crucial value type, especially because it's
 // propagated up the stack.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     Underflow,
     Overflow,
@@ -582,6 +582,7 @@ pub enum Error {
     TypeMismatch(TypeTag, TypeTag),
     //NameError(Rc<String>),
     IndexError(usize),
+    KeyError(String),
     Arity(u8, u8),
     DebugBreak,
     Halt,
@@ -932,6 +933,19 @@ impl VM {
         }
     }
 
+    // Return element from a map reference
+    fn dot(&mut self) -> Result<ControlFlow> {
+        let key: Rc<String> = self.pop_into()?;
+        let key = key.to_string();
+        let map: Rc<HashMap<String, Value>> = self.pop_into()?;
+        if let Some(value) = map.get(&key) {
+            self.push(value.clone());
+            Ok(ControlFlow::Advance)
+        } else {
+            Err(Error::KeyError(key))
+        }
+    }
+
     // Check that top-of-stack matches the given type.
     // Does not consume the stack value.
     fn expect(&self, t: TypeTag) -> Result<ControlFlow> {
@@ -980,6 +994,7 @@ impl VM {
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Arg(n)      => self.arg(n),
             Opcode::Index       => self.index(),
+            Opcode::Dot         => self.dot(),
             Opcode::Expect(t)   => self.expect(t),
             Opcode::Disp        => self.disp(out),
             Opcode::Break       => Err(Error::DebugBreak),
@@ -1672,6 +1687,43 @@ mod tests {
                 Index
             },
             data: vec! {l(&[Int(1)])}
+        });
+    }
+
+
+    #[test]
+    fn test_dot() {
+        assert_evaluates_to(2, 1, Ok(Int(1)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(1)),
+                Load,
+                Dot
+            },
+            data: vec! {m(&[("foo", Int(1))]), s("foo")}
+        });
+
+        let key = String::from("bar");
+        assert_evaluates_to(2, 1, Err(Error::KeyError(key)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(1)),
+                Load,
+                Dot
+            },
+            data: vec! {m(&[("foo", Int(1))]), s("bar")}
+        });
+
+        assert_evaluates_to(2, 1, te(!!TT::Str, TT::Addr), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(1)),
+                Dot
+            },
+            data: vec! {m(&[("foo", Int(1))])}
         });
     }
 }
