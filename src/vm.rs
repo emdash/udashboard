@@ -275,6 +275,7 @@ enum Immediate {
 enum Opcode {
     Push(Immediate),
     Load,
+    Get,
     Coerce(TypeTag),
     Binary(BinOp),
     Unary(UnOp),
@@ -288,7 +289,6 @@ enum Opcode {
     Arg(u8),
     Index,
     Dot,
-    Get,
     Expect(TypeTag),
     Disp,
     Break,
@@ -310,7 +310,7 @@ pub enum Value {
     Float(f64),
     Str(Rc<String>),
     List(Rc<Vec<Value>>),
-    Map(Rc<HashMap<String, Value>>),
+    Map(Rc<Env>),
     Addr(usize),
 }
 
@@ -536,7 +536,7 @@ impl_try_into! { Int   => i64 }
 impl_try_into! { Float => f64 }
 impl_try_into! { Str   => Rc<String> }
 impl_try_into! { List  => Rc<Vec<Value>> }
-impl_try_into! { Map   => Rc<HashMap<String, Value>> }
+impl_try_into! { Map   => Rc<Env> }
 impl_try_into! { Addr  => usize }
 
 
@@ -793,6 +793,17 @@ impl VM {
         }
     }
 
+    // Return element from the environment map.
+    fn get(&mut self, env: &Env) -> Result<ControlFlow> {
+        let key: Rc<String> = self.pop_into()?;
+        let key = key.to_string();
+        if let Some(value) = env.get(&key) {
+            self.push(value.clone());
+            Ok(ControlFlow::Advance)
+        } else {
+            Err(Error::KeyError(key))
+        }
+    }
 
     // Dispatch opcode to the Value implementation.
     fn binop(&mut self, op: BinOp) -> Result<ControlFlow> {
@@ -937,7 +948,7 @@ impl VM {
     fn dot(&mut self) -> Result<ControlFlow> {
         let key: Rc<String> = self.pop_into()?;
         let key = key.to_string();
-        let map: Rc<HashMap<String, Value>> = self.pop_into()?;
+        let map: Rc<Env> = self.pop_into()?;
         if let Some(value) = map.get(&key) {
             self.push(value.clone());
             Ok(ControlFlow::Advance)
@@ -978,10 +989,11 @@ impl VM {
     }
 
     // Dispatch table for built-in opcodes
-    fn dispatch(&mut self, op: Opcode, _: &Env, out: &mut Output) -> Result<ControlFlow> {
+    fn dispatch(&mut self, op: Opcode, env: &Env, out: &mut Output) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),
+            Opcode::Get         => self.get(env),
             Opcode::Coerce(t)   => self.coerce(t),
             Opcode::Binary(op)  => self.binop(op),
             Opcode::Unary(op)   => self.unop(op),
@@ -1060,10 +1072,10 @@ mod tests {
     fn eval(
         stack_limit: usize,
         expected_final_depth: usize,
-        prog: Program
+        prog: Program,
+        env: Env
     ) -> Result<Value> {
         let mut vm = VM::new(prog, stack_limit);
-        let env = HashMap::new();
         let status = vm.exec(&env, &mut ());
 
         // Program is assumed to have left result in top-of-stack.
@@ -1088,7 +1100,8 @@ mod tests {
         expected_value: Result<Value>,
         prog: Program,
     ) {
-        let result = eval(stack_limit, expected_final_depth, prog);
+        let env = HashMap::new();
+        let result = eval(stack_limit, expected_final_depth, prog, env);
         println!("assert_evaluates_to: {:?} == {:?})", &expected_value, &result);
         match (result, expected_value) {
             (Ok(r), Ok(e)) => assert_eq!(r, e),
@@ -1352,6 +1365,40 @@ mod tests {
             },
             data: vec! {}
         });
+    }
+
+    #[test]
+    fn test_get() {
+        let prog = Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Get,
+            },
+            data: vec! {s("foo")}
+        };
+
+        let env: Env =
+            [(String::from("foo"), s("bar"))]
+            .iter()
+            .cloned()
+            .collect();
+
+        assert_eq!(eval(1, 1, prog, env.clone()), Ok(s("bar")));
+
+        let prog = Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Get,
+            },
+            data: vec! {s("bar")}
+        };
+
+        assert_eq!(
+            eval(1, 1, prog, env.clone()),
+            Err(Error::KeyError(String::from("bar")))
+        );
     }
 
     #[test]
