@@ -798,8 +798,7 @@ impl VM {
         let key: Rc<String> = self.pop_into()?;
         let key = key.to_string();
         if let Some(value) = env.get(&key) {
-            self.push(value.clone());
-            Ok(ControlFlow::Advance)
+            Ok(ControlFlow::Yield(value.clone()))
         } else {
             Err(Error::KeyError(key))
         }
@@ -922,8 +921,7 @@ impl VM {
         if n < self.cur_frame.arity {
             let index = self.cur_frame.frame_pointer + n as usize;
             if index < self.stack.len() {
-                self.push(self.stack[index].clone())?;
-                Ok(ControlFlow::Advance)
+                Ok(ControlFlow::Yield(self.stack[index].clone()))
             } else {
                 Err(Error::Underflow)
             }
