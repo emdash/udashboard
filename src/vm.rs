@@ -308,9 +308,10 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
-    // TODO: different pointer types for different locations.
-    Addr(usize),
     Str(Rc<String>),
+    List(Rc<Vec<Value>>),
+    Map(Rc<HashMap<String, Value>>),
+    Addr(usize),
 }
 
 
@@ -319,11 +320,13 @@ pub enum Value {
 #[derive(BitFlags, Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum TypeTag {
-    Bool  = 0b00001,
-    Int   = 0b00010,
-    Float = 0b00100,
-    Str   = 0b01000,
-    Addr  = 0b10000
+    Bool  = 0b0000001,
+    Int   = 0b0000010,
+    Float = 0b0000100,
+    Str   = 0b0001000,
+    List  = 0b0010000,
+    Map   = 0b0100000,
+    Addr  = 0b1000000
 }
 
 type TypeSet = BitFlags<TypeTag>;
@@ -395,6 +398,9 @@ impl Value {
             (Value::Int(v),   TypeTag::Float) => Ok(Value::Float(v as f64)),
             (Value::Float(v), TypeTag::Int)   => Ok(Value::Int(v as i64)),
             (Value::Float(v), TypeTag::Float) => Ok(Value::Float(v)),
+            (Value::Str(v),   TypeTag::Bool)  => Ok(Value::Bool(!v.is_empty())),
+            (Value::List(v),  TypeTag::Bool)  => Ok(Value::Bool(!v.is_empty())),
+            (Value::Map(v),   TypeTag::Bool)  => Ok(Value::Bool(!v.is_empty())),
             (a,               b)
                 => Err(Error::TypeMismatch(a.get_type(), b))
         }
@@ -487,10 +493,14 @@ impl Value {
     } }
 
     operator! { bin eq {
-        (Bool(a), Bool(b)) => Bool(a == b),
-        (Int(a), Int(b)) => Bool(a == b),
+        (Bool(a),  Bool(b))  => Bool(a == b),
+        (Int(a),   Int(b))   => Bool(a == b),
         (Float(a), Float(b)) => Bool(a == b),
-        (Addr(a), Addr(b)) => Bool(a == b)
+        (Str(a),   Str(b))   => Bool(a == b),
+        (List(a),  List(b))  => Bool(a == b),
+        (Map(a),   Map(b))   => Bool(a == b),
+        (Addr(a),  Addr(b))  => Bool(a == b),
+        _                    => Bool(false)
     } }
 
     pub fn get_type(&self) -> TypeTag {
@@ -499,6 +509,8 @@ impl Value {
             Value::Int(_)   => TypeTag::Int,
             Value::Float(_) => TypeTag::Float,
             Value::Str(_)   => TypeTag::Str,
+            Value::List(_)  => TypeTag::List,
+            Value::Map(_)   => TypeTag::Map,
             Value::Addr(_)  => TypeTag::Addr,
         }
     }
@@ -990,6 +1002,27 @@ mod tests {
         Err(Error::TypeError {expect, got})
     }
 
+    // Shortcut for creating a Str value from literal.
+    fn s(v: &'static str) -> Value {
+        Str(Rc::new(String::from(v)))
+    }
+
+    // Shortcut for creating a List from a slice literal.
+    fn l(v: &[Value]) -> Value {
+        List(Rc::new(v.to_vec()))
+    }
+
+    // Shortcut for creating a Map from a slice literal.
+    fn m(v: &[(&'static str, Value)]) -> Value {
+        let map = v
+            .iter()
+            .cloned()
+            .map(|item| (String::from(item.0), item.1))
+            .collect();
+
+        Map(Rc::new(map))
+    }
+
     // Run program to completion in blank environment.
     //
     // Return the final VM state and status code.
@@ -1115,6 +1148,20 @@ mod tests {
 
     #[test]
     fn test_binary_ops() {
+        let l1 = l(&[Int(1), Float(2.0), Bool(false)]);
+        let l2 = l(&[s("abc"), Addr(1), l(&[])]);
+        let m1 = m(&[
+            ("foo", Int(1)),
+            ("bar", Float(2.0)),
+            ("baz", s("quux"))
+        ]);
+        let m2 = m(&[
+            ("foo", Addr(1)),
+            ("bar", l1.clone()),
+            ("baz", m1.clone())
+        ]);
+
+
         test_binary(Sub, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
         test_binary(Mul, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
         test_binary(Div, Bool(false), Bool(false), tm(TT::Bool, TT::Bool));
@@ -1182,6 +1229,12 @@ mod tests {
         test_binary(Min, Float(2.0), Float(3.0), Ok(Float(2.0)));
         test_binary(Max, Float(2.0), Float(3.0), Ok(Float(3.0)));
 
+        test_binary(Eq, l1.clone(), l1.clone(), Ok(Bool(true)));
+        test_binary(Eq, l1.clone(), l2.clone(), Ok(Bool(false)));
+
+        test_binary(Eq, m1.clone(), m1.clone(), Ok(Bool(true)));
+        test_binary(Eq, m1.clone(), m2.clone(), Ok(Bool(false)));
+
         // Test For Type Mismatch Errors
         for &op in &[
             Add,
@@ -1196,21 +1249,50 @@ mod tests {
             Gt,
             Lte,
             Gte,
-            Eq,
             Shl,
             Shr,
             Min,
             Max
         ] {
-            test_binary(op, Bool(true), Int(2),     tm(TT::Bool, TT::Int));
-            test_binary(op, Bool(true), Float(2.0), tm(TT::Bool, TT::Float));
-            test_binary(op, Bool(true), Addr(3),    tm(TT::Bool, TT::Addr));
-            test_binary(op, Int(1),     Bool(true), tm(TT::Int, TT::Bool));
-            test_binary(op, Int(1),     Float(2.0), tm(TT::Int, TT::Float));
-            test_binary(op, Int(1),     Addr(3),    tm(TT::Int, TT::Addr));
+            test_binary(op, Bool(true), Int(2),     tm(TT::Bool,  TT::Int));
+            test_binary(op, Bool(true), Float(2.0), tm(TT::Bool,  TT::Float));
+            test_binary(op, Bool(true), s("abc"),   tm(TT::Bool,  TT::Str));
+            test_binary(op, Bool(true), l1.clone(), tm(TT::Bool,  TT::List));
+            test_binary(op, Bool(true), m1.clone(), tm(TT::Bool,  TT::Map));
+            test_binary(op, Bool(true), Addr(3),    tm(TT::Bool,  TT::Addr));
+            test_binary(op, Int(1),     Bool(true), tm(TT::Int,   TT::Bool));
+            test_binary(op, Int(1),     Float(2.0), tm(TT::Int,   TT::Float));
+            test_binary(op, Int(1),     Addr(3),    tm(TT::Int,   TT::Addr));
+            test_binary(op, Int(1),     s("abc"),   tm(TT::Int,   TT::Str));
+            test_binary(op, Int(1),     l1.clone(), tm(TT::Int,   TT::List));
+            test_binary(op, Int(1),     m1.clone(), tm(TT::Int,   TT::Map));
             test_binary(op, Float(1.0), Bool(true), tm(TT::Float, TT::Bool));
             test_binary(op, Float(1.0), Int(2),     tm(TT::Float, TT::Int));
             test_binary(op, Float(1.0), Addr(2),    tm(TT::Float, TT::Addr));
+            test_binary(op, Float(1.0), s("abc"),   tm(TT::Float, TT::Str));
+            test_binary(op, Float(1.0), l1.clone(), tm(TT::Float, TT::List));
+            test_binary(op, Float(1.0), m1.clone(), tm(TT::Float, TT::Map));
+            test_binary(op, s("abc"),   Bool(true), tm(TT::Str,   TT::Bool));
+            test_binary(op, s("abc"),   Int(1),     tm(TT::Str,   TT::Int));
+            test_binary(op, s("abc"),   Float(2.0), tm(TT::Str,   TT::Float));
+            test_binary(op, s("abc"),   l1.clone(), tm(TT::Str,   TT::List));
+            test_binary(op, s("abc"),   m1.clone(), tm(TT::Str,   TT::Map));
+            test_binary(op, l1.clone(), Bool(true), tm(TT::List,  TT::Bool));
+            test_binary(op, l1.clone(), Int(1),     tm(TT::List,  TT::Int));
+            test_binary(op, l1.clone(), Float(1.0), tm(TT::List,  TT::Float));
+            test_binary(op, l1.clone(), s("abc"),   tm(TT::List,  TT::Str));
+            test_binary(op, l1.clone(), l1.clone(), tm(TT::List,  TT::List));
+            test_binary(op, l1.clone(), m1.clone(), tm(TT::List,  TT::Map));
+            test_binary(op, m1.clone(), Bool(true), tm(TT::Map,   TT::Bool));
+            test_binary(op, m1.clone(), Int(1),     tm(TT::Map,   TT::Int));
+            test_binary(op, m1.clone(), Float(1.0), tm(TT::Map,   TT::Float));
+            test_binary(op, m1.clone(), s("abc"),   tm(TT::Map,   TT::Str));
+            test_binary(op, m1.clone(), m1.clone(), tm(TT::Map,   TT::Map));
+            test_binary(op, Addr(1),    Bool(true), tm(TT::Addr,  TT::Bool));
+            test_binary(op, Addr(1),    Int(2),     tm(TT::Addr,  TT::Int));
+            test_binary(op, Addr(1),    s("abc"),   tm(TT::Addr,  TT::Str));
+            test_binary(op, Addr(1),    l1.clone(), tm(TT::Addr,  TT::List));
+            test_binary(op, Addr(1),    m1.clone(), tm(TT::Addr,  TT::Map));
         }
     }
 
