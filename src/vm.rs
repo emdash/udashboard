@@ -519,11 +519,11 @@ impl Value {
 
 // Factor out boilerplate for implementation of TryInto
 macro_rules! impl_try_into {
-    ($variant:ident => $type:ident) => {
+    ($variant:ident => $type:ty) => {
         impl TryInto<$type> for Value {
             fn try_into(self) -> Result<$type> {
                 match self {
-                    Value::$variant(value) => Ok(value),
+                    Value::$variant(value) => Ok(value.clone()),
                     v => Err(expected(BitFlags::from_flag(TypeTag::$variant), &v))
                 }
             }
@@ -534,6 +534,9 @@ macro_rules! impl_try_into {
 impl_try_into! { Bool  => bool }
 impl_try_into! { Int   => i64 }
 impl_try_into! { Float => f64 }
+impl_try_into! { Str   => Rc<String> }
+impl_try_into! { List  => Rc<Vec<Value>> }
+impl_try_into! { Map   => Rc<HashMap<String, Value>> }
 impl_try_into! { Addr  => usize }
 
 
@@ -917,6 +920,18 @@ impl VM {
         }
     }
 
+    // Return element from a list reference
+    fn index(&mut self) -> Result<ControlFlow> {
+        let index: usize = self.pop_into()?;
+        let list: Rc<Vec<Value>> = self.pop_into()?;
+        if index < list.len() {
+            self.push(list[index].clone());
+            Ok(ControlFlow::Advance)
+        } else {
+            Err(Error::IndexError(index))
+        }
+    }
+
     // Check that top-of-stack matches the given type.
     // Does not consume the stack value.
     fn expect(&self, t: TypeTag) -> Result<ControlFlow> {
@@ -964,6 +979,7 @@ impl VM {
             Opcode::Drop(n)     => self.drop(n),
             Opcode::Dup(n)      => self.dup(n),
             Opcode::Arg(n)      => self.arg(n),
+            Opcode::Index       => self.index(),
             Opcode::Expect(t)   => self.expect(t),
             Opcode::Disp        => self.disp(out),
             Opcode::Break       => Err(Error::DebugBreak),
@@ -1624,5 +1640,38 @@ mod tests {
             output,
             vec! {Value::Int(1), Value::Bool(true), Value::Float(1.0)}
         );
+    }
+
+    #[test]
+    fn test_index() {
+        assert_evaluates_to(2, 1, Ok(Int(1)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(0)),
+                Index
+            },
+            data: vec! {l(&[Int(1)])}
+        });
+
+        assert_evaluates_to(2, 1, Err(Error::IndexError(1)), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Addr(1)),
+                Index
+            },
+            data: vec! {l(&[Int(1)])}
+        });
+
+        assert_evaluates_to(2, 1, te(!!TT::Addr, TT::Int), Program {
+            code: vec! {
+                Push(I::Addr(0)),
+                Load,
+                Push(I::Int(1)),
+                Index
+            },
+            data: vec! {l(&[Int(1)])}
+        });
     }
 }
