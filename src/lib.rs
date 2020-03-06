@@ -27,3 +27,4 @@ pub mod data;
 pub mod output;
 pub mod clock;
 pub mod vm;
+pub mod bytecode;

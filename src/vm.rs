@@ -1008,8 +1008,19 @@ impl VM {
             Opcode::Expect(t)   => self.expect(t),
             Opcode::Disp        => self.disp(out),
             Opcode::Break       => Err(Error::DebugBreak),
-            _                   => Err(Error::IllegalOpcode)
         }
+    }
+}
+
+use crate::bytecode;
+
+struct Compiler();
+
+impl Compiler {
+    pub fn compile(_source: bytecode::Program) -> Program {
+        let code = Vec::new();
+        let data = Vec::new();
+        Program { code, data }
     }
 }
 

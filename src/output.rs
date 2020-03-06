@@ -228,7 +228,7 @@ fn render_loop<DS>(
     pages: [Page; 2],
     data: DS
 ) where DS: DataSource {
-    let clock = Clock::new();
+    let _clock = Clock::new();
     for page in pages.iter().cycle() {
         page.render(&card, &renderer, crtc, &data.get_state());
     }
