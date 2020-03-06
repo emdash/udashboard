@@ -26,14 +26,13 @@ use std::{
         BufRead,
         Read
     },
-    sync::{Arc, mpsc::{sync_channel, Receiver, TrySendError}},
+    sync::{mpsc::{sync_channel, Receiver, TrySendError}},
     thread::{spawn}
 };
 
 use serde_json;
 
 use crate::config::{Float};
-use crate::clock::Clock;
 
 #[derive(Debug, Clone)]
 pub struct State {
