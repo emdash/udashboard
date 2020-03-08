@@ -13,6 +13,8 @@ pub enum TypeError {
     KeyError(Map<TypeTag>, String),
     NotOneOf(Seq<TypeTag>),
     NotIterable(Node<TypeTag>),
+    NotCallable(Node<TypeTag>),
+    ArgError(Seq<TypeTag>, Seq<TypeTag>),
     NotImplemented
 }
 
@@ -24,13 +26,13 @@ pub type TypeCheck = core::result::Result<Node<TypeTag>, TypeError>;
 
 
 pub struct TypeChecker {
-    types: Env<TypeTag>,
+    types: Node<Env<TypeTag>>,
 }
 
 
 impl TypeChecker {
     pub fn new(env: Env<TypeTag>) -> TypeChecker {
-        TypeChecker { types: env }
+        TypeChecker { types: Node::new(env) }
     }
 
     // Return the narrowest representation of the given set of types.
@@ -70,8 +72,10 @@ impl TypeChecker {
             Expr::Dot(obj, key)      => self.eval_dot(obj, key),
             Expr::Index(lst, i)      => self.eval_index(lst, i),
             Expr::Cond(cases)        => self.eval_cond(cases),
-            Expr::Block(_, ret)      => self.eval_expr(ret),
-            Expr::Op(op, args)       => self.eval_op(op, args),
+            Expr::Block(stmts, ret)  => self.eval_block(stmts, ret),
+            Expr::BinOp(op, l, r)    => self.eval_binop(*op, l, r),
+            Expr::UnOp(op, operand)  => self.eval_unop(*op, operand),
+            Expr::Call(func, args)   => self.eval_call(func, args),
             Expr::Lambda(args, body) => self.eval_lambda(args, body)
         }
     }
@@ -107,6 +111,68 @@ impl TypeChecker {
             TypeTag::Map(items) => Self::lookup(&items, field),
             _ => Err(NotAMap(obj.clone()))
         }
+    }
+
+    pub fn eval_block(
+        &self,
+        stmts: &Seq<Statement>,
+        ret: &Node<Expr>
+    ) -> TypeCheck {
+        let mut env = Env::chain(&self.types);
+        let sub = TypeChecker::new(env);
+        for stmt in stmts {
+            sub.check_statement(stmt)?
+        }
+        sub.eval_expr(ret)
+    }
+
+    pub fn check_iterable(&self, expr: &Node<Expr>) -> Result<(), TypeError> {
+        let result = self.eval_expr(expr)?;
+        match result.deref() {
+            TypeTag::List(_) => Ok(()),
+            _ => Err(NotIterable(result))
+        }
+    }
+
+    pub fn check_bool(&self, expr: &Node<Expr>) -> Result<(), TypeError> {
+        let result = self.eval_expr(expr)?;
+        match result.deref() {
+            TypeTag::Bool => Ok(()),
+            _ => Err(Mismatch(result, Node::new(TypeTag::Bool)))
+        }
+    }
+
+
+    pub fn check_statement(
+        &self,
+        stmt: &Node<Statement>
+    ) -> Result<(), TypeError> {
+        match stmt.deref() {
+            Statement::Emit(_, exprs) => {
+                for expr in exprs {
+                    self.eval_expr(expr)?;
+                }
+            },
+            Statement::Def(name, val) => {
+                self.types.define(name, &self.eval_expr(val)?);
+            }
+            Statement::For(lst, body) => {
+                self.check_iterable(lst)?;
+                self.eval_expr(body)?;
+            },
+            Statement::While(cond, body) => {
+                self.check_bool(cond)?;
+                self.eval_expr(body)?;
+            }
+        };
+        Ok(())
+    }
+
+    pub fn check_program(&self, prog: Program) -> Result<(), TypeError> {
+        for stmt in prog.code {
+            self.check_statement(&stmt)?;
+        }
+        Ok(())
     }
 
     pub fn eval_index(&self, lst: &Node<Expr>, index: &Node<Expr>) -> TypeCheck {
@@ -148,12 +214,70 @@ impl TypeChecker {
         }
     }
 
-    pub fn eval_op(&self, name: &String, args: &Seq<Expr>) -> TypeCheck {
-        Err(NotImplemented)
+    pub fn eval_binop(
+        &self,
+        op: BinOp,
+        l: &Node<Expr>,
+        r: &Node<Expr>
+    ) -> TypeCheck {
+        use TypeTag::*;
+        let l = self.eval_expr(l)?;
+        let r = self.eval_expr(r)?;
+        match (op, l.deref(), r.deref()) {
+            (BinOp::Eq, a, b) if a == b => Ok(Node::new(a.clone())),
+            (_, Bool, Bool)   => Ok(Node::new(Bool)),
+            (_, Int, Int)     => Ok(Node::new(Int)),
+            (_, Float, Float) => Ok(Node::new(Float)),
+            (_, Str, Str)     => Ok(Node::new(Float)),
+            _                 => Err(Mismatch(l, r))
+        }
+    }
+
+    pub fn eval_unop(&self, op: UnOp, operand: &Node<Expr>) -> TypeCheck {
+        use TypeTag::*;
+        let type_ = self.eval_expr(operand)?;
+        let numeric = Node::new(Union(vec! {
+            Node::new(Int),
+            Node::new(Float)
+        }));
+        match (op, type_.deref()) {
+            (Not, Bool)  => Ok(Node::new(Bool)),
+            (Not, _)     => Err(Mismatch(type_, Node::new(Bool))),
+            (Neg, Int)   => Ok(Node::new(Int)),
+            (Neg, Float) => Ok(Node::new(Float)),
+            (Neg, _)     => Err(Mismatch(type_, numeric)),
+            (Abs, Int)   => Ok(Node::new(Int)),
+            (Abs, Float) => Ok(Node::new(Float))
+        }
+    }
+
+    fn eval_call(&self, func: &Node<Expr>, args: &Seq<Expr>) -> TypeCheck {
+        let func = self.eval_expr(func)?;
+        let args: Result<Seq<TypeTag>, TypeError> = args
+            .iter()
+            .map(|arg| Ok(self.eval_expr(arg)?))
+            .collect();
+        let args = args?;
+
+        if let TypeTag::Lambda(aargs, ret) = func.deref() {
+            if args == args {
+                Ok(ret.clone())
+            } else {
+                Err(ArgError(args, aargs.clone()))
+            }
+        } else {
+            Err(NotCallable(func))
+        }
     }
 
     pub fn eval_lambda(&self, args: &AList<TypeTag>, body: &Node<Expr>) -> TypeCheck {
-        Err(NotImplemented)
+        let mut env = Env::chain(&self.types);
+        env.import(args);
+        let sub = TypeChecker::new(env);
+        Ok(Node::new(TypeTag::Lambda(
+            args.iter().map(|arg| arg.1.clone()).collect(),
+            sub.eval_expr(body)?
+        )))
     }
 }
 
@@ -217,7 +341,7 @@ mod tests {
 
     macro_rules! env (
         ( $( $id:expr => $v:expr),* ) => { {
-            let mut env = Env::new();
+            let mut env = Env::root();
             {
                 use TypeTag::*;
                 $( env.define(&string! {$id}, & node! {$v}); )*
@@ -229,7 +353,7 @@ mod tests {
     #[test]
     fn test_simple() {
         assert_types_to!(
-            Env::new(),
+            Env::root(),
             Map(map! {
                 "foo" => Int(42),
                 "bar" => Str(string!("baz")),
@@ -245,17 +369,17 @@ mod tests {
     #[test]
     fn test_list() {
         assert_types_to!(
-            Env::new(),
+            Env::root(),
             List(list! {Int(42), Int(3), Int(4)}),
             Ok(List(node! {Int}))
         );
         assert_types_to!(
-            Env::new(),
+            Env::root(),
             List(list! {Float(42.0), Float(3.0), Float(4.0) }),
             Ok(List(node! {Float}))
         );
         assert_types_to!(
-            env! {},
+            Env::root(),
             List(list! {Int(42), Float(2.0), Str(string!{"foo"})}),
             Ok(List(node! {Union(list! {Int, Float, Str})}))
         );
@@ -290,7 +414,7 @@ mod tests {
         );
 
         assert_types_to!(
-            Env::new(),
+            Env::root(),
             Dot(node! {Int(42)}, string! {"bar"}),
             Err(NotAMap(node! {Int}))
         );

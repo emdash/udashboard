@@ -10,7 +10,7 @@ pub type Map<T> = HashMap<String, Node<T>>;
 
 
 // Arithmetic and logic operations
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
     Add,
     Sub,
@@ -32,7 +32,7 @@ pub enum BinOp {
 }
 
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UnOp {
     Not,
     Neg,
@@ -72,7 +72,9 @@ pub enum Expr {
     Index(Node<Expr>, Node<Expr>),
     Cond(Seq<(Expr, Expr)>),
     Block(Seq<Statement>, Node<Expr>),
-    Op(String, Seq<Expr>),
+    BinOp(BinOp, Node<Expr>, Node<Expr>),
+    UnOp(UnOp, Node<Expr>),
+    Call(Node<Expr>, Seq<Expr>),
     Lambda(AList<TypeTag>, Node<Expr>)
 }
 
@@ -90,7 +92,7 @@ pub enum Statement {
 // ADT for programs
 #[derive(Clone, Debug, PartialEq)]
 pub struct Program {
-    description: String,
-    params: HashMap<String, (TypeTag, String)>,
-    code: Seq<Statement>
+    pub description: String,
+    pub params: HashMap<String, (TypeTag, String)>,
+    pub code: Seq<Statement>
 }
