@@ -1,45 +1,37 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
 
 
-// The missing hash literal
-macro_rules! map(
-    { $($key:expr => $value:expr),+ } => {
-        vec! { $( (String::from($key), $value), )+ }
-    }
-);
-
-
-// The missing string constructor
-fn s(lit: &'static str) -> String {
-    String::from(lit)
-}
-
-
 // Abstract over various memory management strategies.
 type Node<T> = Rc<T>;
-type Seq<T> = Vec<T>;
-type Map<T> = Seq<(String, T)>;
+type Seq<T> = Vec<Node<T>>;
+type AList<T> = Vec<(String, Node<T>)>;
+type Map<T> = HashMap<String, Node<T>>;
 
 
 // Datastructure to manage lexical scoping.
 pub struct Env<T> {
-    stack: Vec<HashMap<String, T>>
+    stack: Vec<Map<T>>
 }
 
 
-impl<T> Env<T> where T: Clone {
+impl<T> Env<T> where T: Clone + Debug {
     pub fn new() -> Env<T> {
-        let mut ret = Env {stack: vec! {}};
+        let mut ret = Env {stack: Vec::new()};
         ret.begin();
         ret
     }
 
     // Look up an identifier from anywhere in our scope chain.
-    pub fn get(&self, key: &String) -> Option<T> {
-        for i in (self.stack.len() -1)..0 {
-            let env = self.stack[i].clone();
+    pub fn get(&self, key: &String) -> Option<Node<T>> {
+        println!("{:?}", self.stack);
+        let len = self.stack.len();
+        for i in 0..len {
+            let idx = len - i - 1;
+            println!("{:?}", idx);
+            let env = &self.stack[idx];
             if let Some(value) = env.get(key) {
                 return Some(value.clone())
             }
@@ -48,7 +40,7 @@ impl<T> Env<T> where T: Clone {
     }
 
     // Insert a value in the current scope.
-    pub fn define(&mut self, key: &String, value: &T) {
+    pub fn define(&mut self, key: &String, value: &Node<T>) {
         let env = self.stack.last_mut().unwrap();
         let key = key.clone();
         let value = value.clone();
@@ -56,9 +48,9 @@ impl<T> Env<T> where T: Clone {
     }
 
     // Import the map of values into the current scope.
-    pub fn import(&mut self, scope: &Seq<(String, T)>) {
+    pub fn import(&mut self, scope: &AList<T>) {
         for (k, v) in scope.iter() {
-            self.define(&k, &v)
+            self.define(k, v)
         }
     }
 
@@ -75,7 +67,7 @@ impl<T> Env<T> where T: Clone {
 
 
 // ADT for types
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeTag {
     Unit,
     Bool,
@@ -104,10 +96,10 @@ pub enum Expr {
     Id(String),
     Dot(Node<Expr>, String),
     Index(Node<Expr>, Node<Expr>),
-    Cond(Seq<(Expr, Expr)>, Option<Node<Expr>>),
+    Cond(Seq<(Expr, Expr)>),
     Block(Seq<Statement>, Node<Expr>),
     Op(String, Seq<Expr>),
-    Lambda(Map<TypeTag>, Node<Expr>)
+    Lambda(AList<TypeTag>, Node<Expr>)
 }
 
 
@@ -142,6 +134,7 @@ pub enum TypeError {
     NotIterable(Node<TypeTag>),
     NotImplemented
 }
+use TypeError::*;
 
 
 pub type TypeCheck = core::result::Result<Node<TypeTag>, TypeError>;
@@ -151,13 +144,10 @@ pub struct TypeChecker {
     types: Env<TypeTag>,
 }
 
-use Expr::*;
-use TypeError::*;
-
 
 impl TypeChecker {
-    pub fn new() -> TypeChecker {
-        TypeChecker { types: Env::new() }
+    pub fn new(env: Env<TypeTag>) -> TypeChecker {
+        TypeChecker { types: env }
     }
 
     // Return the narrowest representation of the given set of types.
@@ -165,21 +155,19 @@ impl TypeChecker {
     // If the sequence is empty, reduces to unit.
     // If the sequence contains exactly one type, returns that type.
     // If the sequence contains multiple types, returns a Union with de-duped type.
-    pub fn narrow(mut types: Seq<Node<TypeTag>>) -> Node<TypeTag> {
+    pub fn narrow(mut types: Seq<TypeTag>) -> Node<TypeTag> {
         types.dedup();
         match types.len() {
-            0 => Rc::new(TypeTag::Unit),
-            1 => types.pop().unwrap().clone(),
-            _ => Rc::new(TypeTag::Union(
-                types.iter().map(|x| x.deref().clone()).collect())
-            )
+            0 => Node::new(TypeTag::Unit),
+            1 => types.pop().unwrap(),
+            _ => Node::new(TypeTag::Union(types))
         }
     }
 
     // Return the type of the given field in a map.
     pub fn lookup(fields: &Map<TypeTag>, name: &String) -> TypeCheck {
-        if let Some((_, type_)) = fields.iter().find(|item| &item.0 == name) {
-            Ok(Node::new(type_.clone()))
+        if let Some(type_) = fields.get(name) {
+            Ok(type_.clone())
         } else {
             Err(TypeError::KeyError(fields.clone(), name.clone()))
         }
@@ -187,36 +175,36 @@ impl TypeChecker {
 
     pub fn eval_expr(&self, expr: &Expr) -> TypeCheck {
         match expr {
-            Unit               => Ok(Node::new(TypeTag::Unit)),
-            Bool(_)            => Ok(Node::new(TypeTag::Bool)),
-            Int(_)             => Ok(Node::new(TypeTag::Int)),
-            Float(_)           => Ok(Node::new(TypeTag::Float)),
-            Str(_)             => Ok(Node::new(TypeTag::Str)),
-            Point(_, _)        => Ok(Node::new(TypeTag::Point)),
-            List(items)        => self.eval_list(items),
-            Map(items)         => self.eval_map(items),
-            Id(name)           => self.eval_id(name),
-            Dot(obj, key)      => self.eval_dot(obj, key),
-            Index(lst, i)      => self.eval_index(lst, i),
-            Cond(cases, def)   => self.eval_cond(cases, def),
-            Block(_, ret)      => self.eval_expr(ret),
-            Op(op, args)       => self.eval_op(op, args),
-            Lambda(args, body) => self.eval_lambda(args, body)
+            Expr::Unit               => Ok(Node::new(TypeTag::Unit)),
+            Expr::Bool(_)            => Ok(Node::new(TypeTag::Bool)),
+            Expr::Int(_)             => Ok(Node::new(TypeTag::Int)),
+            Expr::Float(_)           => Ok(Node::new(TypeTag::Float)),
+            Expr::Str(_)             => Ok(Node::new(TypeTag::Str)),
+            Expr::Point(_, _)        => Ok(Node::new(TypeTag::Point)),
+            Expr::List(items)        => self.eval_list(items),
+            Expr::Map(items)         => self.eval_map(items),
+            Expr::Id(name)           => self.eval_id(name),
+            Expr::Dot(obj, key)      => self.eval_dot(obj, key),
+            Expr::Index(lst, i)      => self.eval_index(lst, i),
+            Expr::Cond(cases)        => self.eval_cond(cases),
+            Expr::Block(_, ret)      => self.eval_expr(ret),
+            Expr::Op(op, args)       => self.eval_op(op, args),
+            Expr::Lambda(args, body) => self.eval_lambda(args, body)
         }
     }
 
     pub fn eval_list(&self, items: &Seq<Expr>) -> TypeCheck {
-        let items: Result<Seq<Node<TypeTag>>, TypeError> = items
+        let items: Result<Seq<TypeTag>, TypeError> = items
             .iter()
             .map(|v| self.eval_expr(v))
             .collect();
         Ok(Node::new(TypeTag::List(Self::narrow(items?))))
     }
 
-    pub fn eval_map(&self, fields: &Seq<(String, Expr)>) -> TypeCheck {
+    pub fn eval_map(&self, fields: &Map<Expr>) -> TypeCheck {
         let fields: Result<Map<TypeTag>, TypeError> = fields
             .iter()
-            .map(|(k, v)|  Ok((k.clone(), self.eval_expr(v)?.deref().clone())))
+            .map(|(k, v)|  Ok((k.clone(), self.eval_expr(v)?)))
             .collect();
         Ok(Node::new(TypeTag::Map(fields?)))
     }
@@ -224,7 +212,7 @@ impl TypeChecker {
     pub fn eval_id(&self, name: &String) -> TypeCheck {
         let value = self.types.get(name);
         if let Some(type_) = value {
-            Ok(Node::new(type_.clone()))
+            Ok(type_.clone())
         } else {
             Err(TypeError::Undefined(name.clone()))
         }
@@ -252,12 +240,8 @@ impl TypeChecker {
         }
     }
 
-    pub fn eval_cond(
-        &self,
-        cases: &Seq<(Expr, Expr)>,
-        def: &Option<Node<Expr>>
-    ) -> TypeCheck {
-        let conds: Result<Seq<Node<TypeTag>>, TypeError> = cases
+    pub fn eval_cond(&self, cases: &Seq<(Expr, Expr)>) -> TypeCheck {
+        let conds: Result<Seq<TypeTag>, TypeError> = cases
             .iter()
             .map(|case| Ok(self.eval_expr(&case.0)?.clone()))
             .collect();
@@ -267,7 +251,7 @@ impl TypeChecker {
             .cloned()
             .find(|type_| type_.deref() != &TypeTag::Bool);
 
-        let exprs: Result<Seq<Node<TypeTag>>, TypeError> = cases
+        let exprs: Result<Seq<TypeTag>, TypeError> = cases
             .iter()
             .map(|case| Ok(self.eval_expr(&case.1)?.clone()))
             .collect();
@@ -285,7 +269,7 @@ impl TypeChecker {
         Err(NotImplemented)
     }
 
-    pub fn eval_lambda(&self, args: &Map<TypeTag>, body: &Node<Expr>) -> TypeCheck {
+    pub fn eval_lambda(&self, args: &AList<TypeTag>, body: &Node<Expr>) -> TypeCheck {
         Err(NotImplemented)
     }
 }
@@ -294,18 +278,138 @@ impl TypeChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Expr::*;
+
+    // The missing String literal
+    macro_rules! string(
+        { $s:expr } => { String::from($s) }
+    );
+
+    // Hash literal that wraps items in a Node
+    macro_rules! map(
+        { $($key:expr => $value:expr),* } => {
+            vec! { $( (string!($key), Node::new($value))),* }
+            .iter()
+            .cloned()
+            .collect()
+        }
+    );
+
+    // Vec literal that wraps items in a Node
+    macro_rules! list(
+        { $($i:expr),* } => { vec! { $( Node::new($i)),* } }
+    );
+
+    macro_rules! node(
+        { $i:expr } => { Node::new($i) }
+    );
+
+    macro_rules! assert_types_to(
+        ( $env:expr, $e:expr, Ok($t:expr) ) => {
+            let tc = TypeChecker::new($env);
+            let expr = {
+                use Expr::*;
+                $e
+            };
+            let type_ = {
+                use TypeTag::*;
+                $t
+            };
+            assert_eq!(tc.eval_expr(&expr), Ok(Node::new(type_)));
+        };
+        ( $env:expr, $e:expr, Err($t:expr) ) => {
+            let tc = TypeChecker::new($env);
+            let expr = {
+                use Expr::*;
+                $e
+            };
+            let err = {
+                use TypeError::*;
+                use TypeTag::*;
+                $t
+            };
+            assert_eq!(tc.eval_expr(&expr), Err(err));
+        }
+
+    );
+
+    macro_rules! env (
+        ( $( $id:expr => $v:expr),* ) => { {
+            let mut env = Env::new();
+            {
+                use TypeTag::*;
+                $( env.define(&string! {$id}, & node! {$v}); )*
+            }
+            env
+        } }
+    );
 
     #[test]
     fn test_simple() {
-        let tc = TypeChecker::new();
-        let tt = Expr::Map(map! {
-            "foo" => Int(42),
-            "bar" => Str(s("baz")),
-            "quux" => List(vec! { Int(1), Int(2), Int(3) })
-        });
-        println!("{:?}", tt);
-        println!("{:?}", tc.eval_expr(&tt));
-        assert!(false)
+        assert_types_to!(
+            Env::new(),
+            Map(map! {
+                "foo" => Int(42),
+                "bar" => Str(string!("baz")),
+                "quux" => List(list! {Int(1), Int(2), Int(3)})
+            }), Ok(Map(map! {
+                "foo" => Int,
+                "bar" => Str,
+                "quux" => List(node! {Int})
+            }))
+        );
+    }
+
+    #[test]
+    fn test_list() {
+        assert_types_to!(
+            Env::new(),
+            List(list! {Int(42), Int(3), Int(4)}),
+            Ok(List(node! {Int}))
+        );
+        assert_types_to!(
+            Env::new(),
+            List(list! {Float(42.0), Float(3.0), Float(4.0) }),
+            Ok(List(node! {Float}))
+        );
+        assert_types_to!(
+            env! {},
+            List(list! {Int(42), Float(2.0), Str(string!{"foo"})}),
+            Ok(List(node! {Union(list! {Int, Float, Str})}))
+        );
+    }
+
+    #[test]
+    fn test_id() {
+        assert_types_to!(
+            env! {"foo" => Int},
+            Id(string! {"foo"}),
+            Ok(Int)
+        );
+        assert_types_to!(
+            env! {"foo" => Int},
+            Id(string! {"bar"}),
+            Err(TypeError::Undefined(string! {"bar"}))
+        );
+    }
+
+    #[test]
+    fn test_dot() {
+        assert_types_to!(
+            env! {"x" => Map(map! {"foo" => TypeTag::Str})},
+            Dot(node! {Id(string! {"x"})}, string! {"foo"}),
+            Ok(Str)
+        );
+
+        assert_types_to!(
+            env! {"x" => Map(map! {"foo" => TypeTag::Str})},
+            Dot(node! {Id(string! {"x"})}, string! {"bar"}),
+            Err(KeyError(map! {"foo" => TypeTag::Str}, string! {"bar"}))
+        );
+
+        assert_types_to!(
+            Env::new(),
+            Dot(node! {Int(42)}, string! {"bar"}),
+            Err(NotAMap(node! {Int}))
+        );
     }
 }
