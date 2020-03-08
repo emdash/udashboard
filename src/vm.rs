@@ -176,41 +176,12 @@
 //   verify this.
 
 
+use crate::ast::{BinOp, UnOp};
 use std::collections::HashMap;
 use std::io::Stdout;
 use std::rc::Rc;
 use enumflags2::BitFlags;
 
-
-// Arithmetic and logic operations
-#[derive(Copy, Clone, Debug)]
-enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
-    And,
-    Or,
-    Xor,
-    Lt,
-    Gt,
-    Lte,
-    Gte,
-    Eq,
-    Shl,
-    Shr,
-    Min,
-    Max
-}
-
-
-#[derive(Copy, Clone, Debug)]
-enum UnOp {
-    Not,
-    Neg,
-    Abs,
-}
 
 
 // Immediate values used by push instruction.
@@ -1012,12 +983,10 @@ impl VM {
     }
 }
 
-use crate::bytecode;
-
 struct Compiler();
 
 impl Compiler {
-    pub fn compile(_source: bytecode::Program) -> Program {
+    pub fn compile(_source: crate::ast::Program) -> Program {
         let code = Vec::new();
         let data = Vec::new();
         Program { code, data }
