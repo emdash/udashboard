@@ -13,9 +13,7 @@ serde_json = "*"
 enumflags2 = "^0.6"
 
 [dependencies.drm]
-git = "https://github.com/emdash/drm-rs"
-branch = "armhf"
-features = ["use_bindgen"]
+git = "https://github.com/Smithay/drm-rs"
 
 [dependencies.cairo-rs]
 default-features = false
