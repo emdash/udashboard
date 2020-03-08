@@ -16,18 +16,33 @@
 // License along with this program.  If not, see
 // <https://www.gnu.org/licenses/>.
 
-extern crate cairo;
-extern crate ron;
-extern crate serde;
+use std::{
+    collections::HashMap,
+    env::args,
+    io::stdin
+};
 
-pub mod ast;
-pub mod clock;
-pub mod config;
-pub mod data;
-pub mod env;
-pub mod drm;
-pub mod gtk;
-pub mod render;
-pub mod typechecker;
-pub mod v1;
-pub mod vm;
+use udashboard::v1;
+use udashboard::{
+    config::{Style, Pattern, Color},
+    data::{State, ReadSource},
+    gtk,
+    render::{CairoRenderer, PNGRenderer},
+};
+
+fn main() {
+    let config = v1::load(args().nth(1).unwrap())
+        .expect("couldn't load config");
+
+    let renderer = CairoRenderer::new(
+        config.screen,
+        config.pages,
+        Style {
+            background: Pattern::Solid(Color(0.0, 0.0, 0.0, 1.0)),
+            foreground: Pattern::Solid(Color(1.0, 1.0, 1.0, 1.0)),
+            indicator: Pattern::Solid(Color(1.0, 0.0, 0.0, 1.0)),
+        }
+    );
+
+    gtk::run(renderer, ReadSource::new(stdin()));
+}
