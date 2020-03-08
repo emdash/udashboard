@@ -1,125 +1,6 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
+use crate::ast::*;
+use crate::env::*;
 use std::ops::Deref;
-use std::rc::Rc;
-
-
-// Abstract over various memory management strategies.
-type Node<T> = Rc<T>;
-type Seq<T> = Vec<Node<T>>;
-type AList<T> = Vec<(String, Node<T>)>;
-type Map<T> = HashMap<String, Node<T>>;
-
-
-// Datastructure to manage lexical scoping.
-pub struct Env<T> {
-    stack: Vec<Map<T>>
-}
-
-
-impl<T> Env<T> where T: Clone + Debug {
-    pub fn new() -> Env<T> {
-        let mut ret = Env {stack: Vec::new()};
-        ret.begin();
-        ret
-    }
-
-    // Look up an identifier from anywhere in our scope chain.
-    pub fn get(&self, key: &String) -> Option<Node<T>> {
-        println!("{:?}", self.stack);
-        let len = self.stack.len();
-        for i in 0..len {
-            let idx = len - i - 1;
-            println!("{:?}", idx);
-            let env = &self.stack[idx];
-            if let Some(value) = env.get(key) {
-                return Some(value.clone())
-            }
-        }
-        None
-    }
-
-    // Insert a value in the current scope.
-    pub fn define(&mut self, key: &String, value: &Node<T>) {
-        let env = self.stack.last_mut().unwrap();
-        let key = key.clone();
-        let value = value.clone();
-        env.insert(key, value);
-    }
-
-    // Import the map of values into the current scope.
-    pub fn import(&mut self, scope: &AList<T>) {
-        for (k, v) in scope.iter() {
-            self.define(k, v)
-        }
-    }
-
-    // Begin a new scope.
-    pub fn begin(&mut self) {
-        self.stack.push(HashMap::new())
-    }
-
-    // End the current scope.
-    pub fn end(&mut self) {
-        self.stack.pop();
-    }
-}
-
-
-// ADT for types
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TypeTag {
-    Unit,
-    Bool,
-    Int,
-    Float,
-    Str,
-    Point,
-    List(Node<TypeTag>),
-    Map(Map<TypeTag>),
-    Lambda(Seq<TypeTag>, Node<TypeTag>),
-    Union(Seq<TypeTag>),
-}
-
-
-// ADT for values
-#[derive(Clone, Debug, PartialEq)]
-pub enum Expr {
-    Unit,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    Point(f64, f64),
-    List(Seq<Expr>),
-    Map(Map<Expr>),
-    Id(String),
-    Dot(Node<Expr>, String),
-    Index(Node<Expr>, Node<Expr>),
-    Cond(Seq<(Expr, Expr)>),
-    Block(Seq<Statement>, Node<Expr>),
-    Op(String, Seq<Expr>),
-    Lambda(AList<TypeTag>, Node<Expr>)
-}
-
-
-// ADT for effects and structure
-#[derive(Clone, Debug, PartialEq)]
-pub enum Statement {
-    Emit(String, Seq<Expr>),
-    Def(String, Node<Expr>),
-    For(Node<Expr>, Node<Expr>),
-    While(Node<Expr>, Node<Expr>),
-}
-
-
-// ADT for programs
-#[derive(Clone, Debug, PartialEq)]
-pub struct Program {
-    description: String,
-    params: HashMap<String, (TypeTag, String)>,
-    code: Seq<Statement>
-}
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,6 +15,8 @@ pub enum TypeError {
     NotIterable(Node<TypeTag>),
     NotImplemented
 }
+
+
 use TypeError::*;
 
 
@@ -169,7 +52,7 @@ impl TypeChecker {
         if let Some(type_) = fields.get(name) {
             Ok(type_.clone())
         } else {
-            Err(TypeError::KeyError(fields.clone(), name.clone()))
+            Err(KeyError(fields.clone(), name.clone()))
         }
     }
 
@@ -214,7 +97,7 @@ impl TypeChecker {
         if let Some(type_) = value {
             Ok(type_.clone())
         } else {
-            Err(TypeError::Undefined(name.clone()))
+            Err(Undefined(name.clone()))
         }
     }
 
@@ -222,7 +105,7 @@ impl TypeChecker {
         let obj = self.eval_expr(obj)?;
         match obj.deref() {
             TypeTag::Map(items) => Self::lookup(&items, field),
-            _ => Err(TypeError::NotAMap(obj.clone()))
+            _ => Err(NotAMap(obj.clone()))
         }
     }
 
@@ -233,10 +116,10 @@ impl TypeChecker {
         if index.deref() == &TypeTag::Int {
             match lst.deref() {
                 TypeTag::List(item) => Ok(item.clone()),
-                x => Err(TypeError::NotAList(lst.clone()))
+                x => Err(NotAList(lst.clone()))
             }
         } else {
-            Err(TypeError::ListIndexMustBeInt(index))
+            Err(ListIndexMustBeInt(index))
         }
     }
 
@@ -260,7 +143,7 @@ impl TypeChecker {
         match conds {
             None => Ok(Self::narrow(exprs?)),
             Some(wrong_type) => Err(
-                TypeError::Mismatch(wrong_type, Node::new(TypeTag::Bool))
+                Mismatch(wrong_type, Node::new(TypeTag::Bool))
             )
         }
     }
