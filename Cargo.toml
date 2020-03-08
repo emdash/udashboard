@@ -8,7 +8,7 @@ license = "LGPL-3.0-or-later"
 [dependencies]
 ron = "*"
 nix = "0.11.0"
-cairo-sys-rs = "0.8.0"
+cairo-sys-rs = "0.9.1"
 serde_json = "*"
 enumflags2 = "^0.6"
 
@@ -19,7 +19,10 @@ git = "https://github.com/Smithay/drm-rs"
 default-features = false
 features = ["png"]
 
-
 [dependencies.serde]
 features = ["derive"]
 version = "1.0"
+
+[dependencies.gtk]
+version = "0.8.0"
+features = ["v3_18"]
