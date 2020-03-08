@@ -25,7 +25,7 @@ pub mod clock;
 pub mod config;
 pub mod data;
 pub mod env;
-pub mod output;
+pub mod drm;
 pub mod render;
 pub mod typechecker;
 pub mod v1;
