@@ -25,7 +25,7 @@ use std::{
 use udashboard::v1;
 use udashboard::{
     config::{Style, Pattern, Color},
-    output,
+    drm,
     render::{CairoRenderer, PNGRenderer},
     data::{State, ReadSource},
     vm
@@ -46,7 +46,7 @@ fn main() {
     );
 
     if let Some(path) = args().nth(2) {
-        output::run(path, renderer, ReadSource::new(stdin()));
+        drm::run(path, renderer, ReadSource::new(stdin()));
     } else {
         println!("No device path given, rendering to png.");
 
