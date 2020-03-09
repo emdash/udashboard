@@ -1,5 +1,5 @@
 use crate::render::CairoRenderer;
-use crate::data::{State, ReadSource, DataSource};
+use crate::data::{ReadSource, DataSource};
 use crate::clock::Clock;
 use crate::config::Screen;
 
@@ -8,8 +8,6 @@ use gtk::*;
 use cairo::*;
 use std::io::stdin;
 use std::process;
-use std::rc::Rc;
-use std::time::Instant;
 
 // Render the entire UI.
 fn draw(cr: &Context, time: f64) {

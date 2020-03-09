@@ -561,7 +561,7 @@ pub enum Error {
 
 
 type Stack = Vec<Value>;
-type Env = HashMap<String, Value>;
+pub type Env = HashMap<String, Value>;
 
 
 // The internal program representation.
@@ -571,6 +571,7 @@ type Env = HashMap<String, Value>;
 //
 // Code is a sequence of instructions.
 // Data is the table of string values.
+#[derive(Clone)]
 pub struct Program {
     code: Vec<Opcode>,
     data: Vec<Value>
@@ -602,6 +603,10 @@ impl Program {
         } else {
             Err(Error::IllegalAddr(index))
         }
+    }
+
+    pub fn new() -> Program {
+        Program {code: vec! {}, data: vec! {}}
     }
 }
 
@@ -945,7 +950,7 @@ impl VM {
     }
 
     // Emit the top of stack as output.
-    fn disp(&mut self, out: &mut Output) -> Result<ControlFlow> {
+    fn disp(&mut self, out: &mut impl Output) -> Result<ControlFlow> {
         let value = self.pop()?;
         out.output(value);
         Ok(ControlFlow::Advance)
@@ -958,7 +963,7 @@ impl VM {
     }
 
     // Dispatch table for built-in opcodes
-    fn dispatch(&mut self, op: Opcode, env: &Env, out: &mut Output) -> Result<ControlFlow> {
+    fn dispatch(&mut self, op: Opcode, env: &Env, out: &mut impl Output) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),

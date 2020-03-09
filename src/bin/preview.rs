@@ -21,27 +21,20 @@ use std::{
     env::args
 };
 
+use udashboard::config::{Style, Pattern, Color, Screen};
+use udashboard::data::{State, ReadSource};
 use udashboard::v1;
-use udashboard::{
-    config::{Style, Pattern, Color},
-    data::{State, ReadSource},
-    windowed,
-    render::{CairoRenderer, PNGRenderer},
-};
+use udashboard::vm;
+use udashboard::windowed;
+use udashboard::render::{CairoRenderer, PNGRenderer};
+
 
 fn main() {
-    let config = v1::load(args().nth(1).unwrap())
-        .expect("couldn't load config");
-
+    let screen = Screen { width: 1024.0, height: 600.0 };
     let renderer = CairoRenderer::new(
-        config.screen,
-        config.pages,
-        Style {
-            background: Pattern::Solid(Color(0.0, 0.0, 0.0, 1.0)),
-            foreground: Pattern::Solid(Color(1.0, 1.0, 1.0, 1.0)),
-            indicator: Pattern::Solid(Color(1.0, 0.0, 0.0, 1.0)),
-        }
+        screen,
+        vm::Program::new()
     );
 
-    windowed::run(config.screen, renderer);
+    windowed::run(screen, renderer);
 }
