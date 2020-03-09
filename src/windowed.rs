@@ -1,6 +1,7 @@
 use crate::render::CairoRenderer;
 use crate::data::{State, DataSource};
 use crate::clock::Clock;
+use crate::config::Screen;
 
 use gtk::prelude::*;
 use gtk::*;
@@ -26,7 +27,11 @@ fn draw(cr: &Context, time: f64) {
 }
 
 
-pub fn run<DS>(_renderer: CairoRenderer, data: DS) where DS:DataSource {
+pub fn run<DS>(
+    screen: Screen,
+    _renderer: CairoRenderer,
+    data: DS
+) where DS:DataSource {
     if gtk::init().is_err() {
         eprintln!("Failed to initialize GTK!");
         process::exit(1);
@@ -39,6 +44,8 @@ pub fn run<DS>(_renderer: CairoRenderer, data: DS) where DS:DataSource {
     window.add(&da);
     window.set_title("Hello, world!");
     window.show_all();
+    // XXX: pixel densities vary, we should be using DPI information
+    window.set_size_request(screen.width as i32, screen.height as i32);
 
     window.connect_delete_event(move |_, _| {
         main_quit();
