@@ -18,20 +18,21 @@
 
 use std::{
     collections::HashMap,
-    env::args
+    env::args,
 };
 
 use udashboard::config::Screen;
 use udashboard::vm;
 use udashboard::windowed;
-use udashboard::render::CairoRenderer;
+use udashboard::render::{CairoRenderer, parse};
 
+const prog: &str = "1.0 0.0 0.0 rgb 0 0 #1 load get #1 load get rect fill";
 
 fn main() {
     let screen = Screen { width: 1024.0, height: 600.0 };
     let renderer = CairoRenderer::new(
         screen,
-        vm::Program::new()
+        parse(prog)
     );
     windowed::run(screen, renderer);
 }

@@ -17,12 +17,24 @@
 // <https://www.gnu.org/licenses/>.
 
 // Cairo rendering implementation
+use crate::ast::BinOp;
+use crate::ast::UnOp;
 use crate::config::Screen;
 use crate::data::State;
-use crate::vm::{Program, Output, VM, Value, Result, Env};
+use crate::vm::Env;
+use crate::vm::Error;
+use crate::vm::Immediate;
+use crate::vm::Opcode;
+use crate::vm::Output;
+use crate::vm::Program;
+use crate::vm::Result;
+use crate::vm::TypeTag;
+use crate::vm::Value;
+use crate::vm::VM;
 
 use std::fs::File;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use cairo;
 use cairo::{Context, Format, ImageSurface};
@@ -50,15 +62,63 @@ type CairoVM = VM<CairoOperation>;
 
 
 pub struct CairoRenderer {
-    // XXX: it sucks that need this overhead. The renderer either
-    // needs interior mutability for the vm, or else we have to do the
-    // rendering outside the paint method.
-    //
-    // For drm, it doesn't matter, since we control the draw loop.
-    // For Gtk, gtk-rs closures are not FnMut, so we can't capture
-    // mutable values in them! what's the goddamn point of that?
     screen: Screen,
     vm: RefCell<CairoVM>
+}
+
+
+pub fn decode_word(word: &str) -> Option<Opcode<CairoOperation>> {
+    if word.starts_with("#") {
+        if let Ok(x) = word[1..].parse::<usize>() {
+            Some(Opcode::Push(Immediate::Addr(x)))
+        } else {
+            None
+        }
+    } else if let Ok(x) = word.parse::<f64>() {
+        Some(Opcode::Push(Immediate::Float(x)))
+    } else if let Ok(x) = word.parse::<i16>() {
+        Some(Opcode::Push(Immediate::Int(x)))
+    } else if let Ok(x) = word.parse() {
+        Some(Opcode::Push(Immediate::Bool(x)))
+    } else {
+        match word {
+            "load" => Some(Opcode::Load),
+            "get" => Some(Opcode::Get),
+            "bool" => Some(Opcode::Coerce(TypeTag::Bool)),
+            "int" => Some(Opcode::Coerce(TypeTag::Int)),
+            "float" => Some(Opcode::Coerce(TypeTag::Float)),
+            "bt" => Some(Opcode::BranchTrue),
+            "bf" => Some(Opcode::BranchTrue),
+            "ba" => Some(Opcode::Branch),
+            "index" => Some(Opcode::Index),
+            "." => Some(Opcode::Dot),
+            "rgb" => Some(Opcode::Disp(CairoOperation::SetSourceRgb)),
+            "rgba" => Some(Opcode::Disp(CairoOperation::SetSourceRgba)),
+            "rect" => Some(Opcode::Disp(CairoOperation::Rect)),
+            "fill" => Some(Opcode::Disp(CairoOperation::Fill)),
+            "stroke" => Some(Opcode::Disp(CairoOperation::Stroke)),
+            "paint" => Some(Opcode::Disp(CairoOperation::Paint)),
+            "!" => Some(Opcode::Break),
+            _ => None
+        }
+    }
+}
+
+
+pub fn parse(source: &str) -> Program<CairoOperation> {
+    let code: Option<Vec<Opcode<CairoOperation>>> = source
+        .split_whitespace()
+        .map(|word| decode_word(&word.to_owned()))
+        .collect();
+
+    Program {
+        code: code.unwrap(),
+        data: vec! {
+            Value::Str(Rc::new(String::from("RPM"))),
+            Value::Str(Rc::new(String::from("ECT"))),
+            Value::Str(Rc::new(String::from("OIL_PRESSURE")))
+        }
+    }
 }
 
 
@@ -73,6 +133,7 @@ impl<'a> Hack<'a> {
         let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
         let r: f64 = vm.pop_into()?;
+        println!("{:?}, {:?}, {:?}", r, g, b);
         self.cr.set_source_rgb(r, g, b);
         Ok(())
     }
@@ -95,17 +156,17 @@ impl<'a> Hack<'a> {
         Ok(())
     }
 
-    fn fill(&self, vm: &mut CairoVM) -> Result<()> {
+    fn fill(&self) -> Result<()> {
         self.cr.fill();
         Ok(())
     }
 
-    fn stroke(&self, vm: &mut CairoVM) -> Result<()> {
+    fn stroke(&self) -> Result<()> {
         self.cr.stroke();
         Ok(())
     }
 
-    fn paint(&self, vm: &mut CairoVM) -> Result<()> {
+    fn paint(&self) -> Result<()> {
         self.cr.paint();
         Ok(())
     }
@@ -119,9 +180,9 @@ impl<'a> Output<CairoOperation> for Hack<'a> {
             SetSourceRgb => self.set_source_rgb(vm),
             SetSourceRgba => self.set_source_rgba(vm),
             Rect => self.rect(vm),
-            Fill => self.fill(vm),
-            Stroke => self.stroke(vm),
-            Paint => self.paint(vm)
+            Fill => self.fill(),
+            Stroke => self.stroke(),
+            Paint => self.paint()
         }
     }
 }
@@ -144,6 +205,7 @@ impl CairoRenderer {
         // XXX: specify this somewher.
         cr.set_source_rgb(0.0, 0.0, 0.0);
         cr.paint();
+        cr.identity_matrix();
         let mut hack = Hack { cr };
 
         let env: Env = state
