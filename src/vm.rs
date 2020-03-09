@@ -243,7 +243,7 @@ enum Immediate {
 // for future optimization. For now, just getting it working is top
 // priority.
 #[derive(Copy, Clone, Debug)]
-enum Opcode {
+enum Opcode<Effect> {
     Push(Immediate),
     Load,
     Get,
@@ -261,7 +261,7 @@ enum Opcode {
     Index,
     Dot,
     Expect(TypeTag),
-    Disp,
+    Disp(Effect),
     Break,
 }
 
@@ -572,17 +572,17 @@ pub type Env = HashMap<String, Value>;
 // Code is a sequence of instructions.
 // Data is the table of string values.
 #[derive(Clone)]
-pub struct Program {
-    code: Vec<Opcode>,
+pub struct Program<Effect> {
+    code: Vec<Opcode<Effect>>,
     data: Vec<Value>
 }
 
 
-impl Program {
+impl<Effect> Program<Effect> where Effect: Copy {
     // Safely fetch the opcode from the given address.
     //
     // The address is simply the index into the instruction sequence.
-    fn fetch(&self, index: usize) -> Result<Opcode> {
+    fn fetch(&self, index: usize) -> Result<Opcode<Effect>> {
         let len = self.code.len();
 
         if index < len {
@@ -605,7 +605,7 @@ impl Program {
         }
     }
 
-    pub fn new() -> Program {
+    pub fn new() -> Program<Effect> {
         Program {code: vec! {}, data: vec! {}}
     }
 }
@@ -619,8 +619,8 @@ struct StackFrame {
 
 
 // The entire VM state.
-pub struct VM {
-    program: Program,
+pub struct VM<Effect> {
+    program: Program<Effect>,
     stack: Stack,
     call_stack: Vec<StackFrame>,
     cur_frame: StackFrame,
@@ -677,8 +677,8 @@ impl Output for () {
 //
 // TODO: Handle integer overflow, and FP NaN as traps, so user code
 // can deal.
-impl VM {
-    pub fn new(program: Program, depth: usize) -> VM {
+impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
+    pub fn new(program: Program<Effect>, depth: usize) -> VM<Effect> {
         VM {
             program: program,
             stack: Stack::with_capacity(depth),
@@ -950,7 +950,11 @@ impl VM {
     }
 
     // Emit the top of stack as output.
-    fn disp(&mut self, out: &mut impl Output) -> Result<ControlFlow> {
+    fn disp(
+        &mut self,
+        e: Effect,
+        out: &mut impl Output
+    ) -> Result<ControlFlow> {
         let value = self.pop()?;
         out.output(value);
         Ok(ControlFlow::Advance)
@@ -963,7 +967,12 @@ impl VM {
     }
 
     // Dispatch table for built-in opcodes
-    fn dispatch(&mut self, op: Opcode, env: &Env, out: &mut impl Output) -> Result<ControlFlow> {
+    fn dispatch(
+        &mut self,
+        op: Opcode<Effect>,
+        env: &Env,
+        out: &mut impl Output
+    ) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
             Opcode::Load        => self.load(),
@@ -982,19 +991,9 @@ impl VM {
             Opcode::Index       => self.index(),
             Opcode::Dot         => self.dot(),
             Opcode::Expect(t)   => self.expect(t),
-            Opcode::Disp        => self.disp(out),
+            Opcode::Disp(ef)    => self.disp(ef, out),
             Opcode::Break       => Err(Error::DebugBreak),
         }
-    }
-}
-
-struct Compiler();
-
-impl Compiler {
-    pub fn compile(_source: crate::ast::Program) -> Program {
-        let code = Vec::new();
-        let data = Vec::new();
-        Program { code, data }
     }
 }
 
