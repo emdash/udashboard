@@ -29,7 +29,7 @@ fn draw(cr: &Context, time: f64) {
 
 pub fn run<DS>(
     screen: Screen,
-    _renderer: CairoRenderer,
+    renderer: CairoRenderer,
     data: DS
 ) where DS:DataSource {
     if gtk::init().is_err() {
