@@ -399,7 +399,7 @@ mod tests {
         assert_types_to!(
             env! {"foo" => Int},
             Id(string! {"bar"}),
-            Err(TypeError::Undefined(string! {"bar"}))
+            Err(Undefined(string! {"bar"}))
         );
     }
 

@@ -178,7 +178,6 @@
 
 use crate::ast::{BinOp, UnOp};
 use std::collections::HashMap;
-use std::io::Stdout;
 use std::rc::Rc;
 use enumflags2::BitFlags;
 
@@ -267,7 +266,7 @@ enum Opcode<Effect> {
 
 
 // The result of any operation
-type Result<T> = core::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 
 // All valid values
@@ -308,7 +307,7 @@ type TypeSet = BitFlags<TypeTag>;
 // since this is a runtime value, we need to implement Into for
 // Result<T>, not plain T, since it can fail at runtime. The compiler
 // isn't smart enough to deduce the type.
-trait TryInto<T> {
+pub trait TryInto<T> {
     fn try_into(self) -> Result<T>;
 }
 
@@ -637,26 +636,8 @@ pub enum ControlFlow {
 
 
 // trait for capturing VM debug output (result of Disp opcode)
-pub trait Output {
-    fn output(&mut self, value: Value);
-}
-
-
-impl Output for Stdout {
-    fn output(&mut self, value: Value) {
-        println!("{:?}", value);
-    }
-}
-
-impl Output for Vec<Value> {
-    fn output(&mut self, value: Value) {
-        self.push(value)
-    }
-}
-
-impl Output for () {
-    fn output(&mut self, _value: Value) {
-    }
+pub trait Output<Effect> {
+    fn output(&mut self, ef: Effect, vm: &mut VM<Effect>) -> Result<()>;
 }
 
 
@@ -705,7 +686,11 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
     pub fn depth(&self) -> usize { self.stack.len() }
 
     // Run the entire program until it halts.
-    pub fn exec(&mut self, env: &Env, out: &mut impl Output) -> Result<()> {
+    pub fn exec(
+        &mut self,
+        env: &Env,
+        out: &mut impl Output<Effect>
+    ) -> Result<()> {
         // Safe, because we have borrowed env and so by contract it
         // is immutable.
         loop { unsafe {
@@ -730,7 +715,11 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
     // can get my head around lifetime parameters in struct
     // definitions, but I am having a hard enough time with the
     // type-checking as it is.
-    pub unsafe fn step(&mut self, env: &Env, out: &mut impl Output) -> Result<()> {
+    pub unsafe fn step(
+        &mut self,
+        env: &Env,
+        out: &mut impl Output<Effect>
+    ) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
 
         // TODO: if (trace) {
@@ -822,7 +811,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
     }
 
     // Needed this because type inference failed.
-    fn pop_into<T>(&mut self) -> Result<T> where Value: TryInto<T> {
+    pub fn pop_into<T>(&mut self) -> Result<T> where Value: TryInto<T> {
         let v: Value = self.pop()?;
         let v: T = v.try_into()?;
         Ok(v)
@@ -953,10 +942,9 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
     fn disp(
         &mut self,
         e: Effect,
-        out: &mut impl Output
+        out: &mut impl Output<Effect>
     ) -> Result<ControlFlow> {
-        let value = self.pop()?;
-        out.output(value);
+        out.output(e, self);
         Ok(ControlFlow::Advance)
     }
 
@@ -971,7 +959,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
         &mut self,
         op: Opcode<Effect>,
         env: &Env,
-        out: &mut impl Output
+        out: &mut impl Output<Effect>
     ) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
@@ -1010,12 +998,49 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Opcode::*;
-    use BinOp::*;
-    use UnOp::*;
-    use Value::*;
-    use Immediate as I;
-    use TypeTag as TT;
+    use super::BinOp::*;
+    use super::UnOp::*;
+    use super::Value::*;
+    use super::Immediate as I;
+    use super::TypeTag as TT;
+    use super::Error;
+    use super::Rc;
+    use super::HashMap;
+    use super::Env;
+    use std::io::Stdout;
+
+    #[derive(Copy, Clone, Debug)]
+    enum TestEffect { Foo, Bar, Baz }
+
+    type VM = super::VM<TestEffect>;
+    type Program = super::Program<TestEffect>;
+    type Opcode = super::Opcode<TestEffect>;
+    type Output = dyn super::Output<TestEffect>;
+
+    use super::Opcode::*;
+
+    impl super::Output<TestEffect> for () {
+        fn output(&mut self, _: TestEffect, vm: &mut VM) -> Result<()> {
+            let _ = vm.pop()?;
+            Ok(())
+        }
+    }
+
+    // Useful for debugging in unit tests.
+    impl super::Output<TestEffect> for Stdout {
+        fn output(&mut self, ef: TestEffect, vm: &mut VM) -> Result<()>{
+            println!("{:?}", vm.pop()?);
+            Ok(())
+        }
+    }
+
+    // Used for explicitly testing the effect mechanism.
+    impl super::Output<TestEffect> for Vec<super::Value> {
+        fn output(&mut self, ef: TestEffect, vm: &mut VM) -> Result<()>{
+            self.push(vm.pop()?);
+            Ok(())
+        }
+    }
 
     // Shortcut for creating a TypeMismatch error.
     fn tm(a: TypeTag, b: TypeTag) -> Result<Value> {
@@ -1142,8 +1167,8 @@ mod tests {
     fn test_simple() {
         let p = Program {
             code: vec! {
-                Push(Immediate::Int(1)),
-                Push(Immediate::Int(2)),
+                Push(I::Int(1)),
+                Push(I::Int(2)),
                 Binary(Add)
             },
             data: vec! {}
@@ -1388,14 +1413,14 @@ mod tests {
         assert_evaluates_to(1, 1, Ok(Int(0)), Program {
             code: vec! {
                 Push(I::Bool(false)),
-                Coerce(TypeTag::Int)
+                Coerce(TT::Int)
             },
             data: vec! {}
         });
         assert_evaluates_to(1, 1, Ok(Int(1)), Program {
             code: vec! {
                 Push(I::Bool(true)),
-                Coerce(TypeTag::Int)
+                Coerce(TT::Int)
             },
             data: vec! {}
         });
@@ -1403,7 +1428,7 @@ mod tests {
         assert_evaluates_to(1, 1, Ok(Float(1.0)), Program {
             code: vec! {
                 Push(I::Int(1)),
-                Coerce(TypeTag::Float)
+                Coerce(TT::Float)
             },
             data: vec! {}
         });
@@ -1411,7 +1436,7 @@ mod tests {
         assert_evaluates_to(1, 0, tm(TT::Bool, TT::Addr), Program {
             code: vec! {
                 Push(I::Bool(true)),
-                Coerce(TypeTag::Addr)
+                Coerce(TT::Addr)
             },
             data: vec! {}
         });
@@ -1419,7 +1444,7 @@ mod tests {
         assert_evaluates_to(1, 0, tm(TT::Int, TT::Addr), Program {
             code: vec! {
                 Push(I::Int(0)),
-                Coerce(TypeTag::Addr)
+                Coerce(TT::Addr)
             },
             data: vec! {}
         });
@@ -1427,7 +1452,7 @@ mod tests {
         assert_evaluates_to(1, 0, tm(TT::Float, TT::Addr), Program {
             code: vec! {
                 Push(I::Float(0.0)),
-                Coerce(TypeTag::Addr)
+                Coerce(TT::Addr)
             },
             data: vec! {}
         });
@@ -1435,7 +1460,7 @@ mod tests {
         assert_evaluates_to(1, 0, tm(TT::Addr, TT::Addr), Program {
             code: vec! {
                 Push(I::Addr(3)),
-                Coerce(TypeTag::Addr)
+                Coerce(TT::Addr)
             },
             data: vec! {}
         });
@@ -1668,11 +1693,11 @@ mod tests {
         let prog = Program {
             code: vec! {
                 Push(I::Int(1)),
-                Disp,
+                Disp(TestEffect::Foo),
                 Push(I::Bool(true)),
-                Disp,
+                Disp(TestEffect::Bar),
                 Push(I::Float(1.0)),
-                Disp
+                Disp(TestEffect::Baz)
             },
             data: vec! {}
         };
@@ -1682,7 +1707,7 @@ mod tests {
 
         assert_eq!(
             output,
-            vec! {Value::Int(1), Value::Bool(true), Value::Float(1.0)}
+            vec! {Int(1), Bool(true), Float(1.0)}
         );
     }
 
