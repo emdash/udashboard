@@ -21,12 +21,10 @@ use std::{
     env::args
 };
 
-use udashboard::config::{Style, Pattern, Color, Screen};
-use udashboard::data::{State, ReadSource};
-use udashboard::v1;
+use udashboard::config::Screen;
 use udashboard::vm;
 use udashboard::windowed;
-use udashboard::render::{CairoRenderer, PNGRenderer};
+use udashboard::render::CairoRenderer;
 
 
 fn main() {
@@ -35,6 +33,5 @@ fn main() {
         screen,
         vm::Program::new()
     );
-
     windowed::run(screen, renderer);
 }
