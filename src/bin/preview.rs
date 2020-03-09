@@ -18,8 +18,7 @@
 
 use std::{
     collections::HashMap,
-    env::args,
-    io::stdin
+    env::args
 };
 
 use udashboard::v1;
@@ -44,5 +43,5 @@ fn main() {
         }
     );
 
-    windowed::run(config.screen, renderer, ReadSource::new(stdin()));
+    windowed::run(config.screen, renderer);
 }

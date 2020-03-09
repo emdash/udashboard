@@ -1,15 +1,15 @@
 use crate::render::CairoRenderer;
-use crate::data::{State, DataSource};
+use crate::data::{State, ReadSource, DataSource};
 use crate::clock::Clock;
 use crate::config::Screen;
 
 use gtk::prelude::*;
 use gtk::*;
 use cairo::*;
+use std::io::stdin;
 use std::process;
 use std::rc::Rc;
 use std::time::Instant;
-
 
 // Render the entire UI.
 fn draw(cr: &Context, time: f64) {
@@ -27,16 +27,13 @@ fn draw(cr: &Context, time: f64) {
 }
 
 
-pub fn run<DS>(
-    screen: Screen,
-    renderer: CairoRenderer,
-    data: DS
-) where DS:DataSource {
+pub fn run(screen: Screen, renderer: CairoRenderer) {
     if gtk::init().is_err() {
         eprintln!("Failed to initialize GTK!");
         process::exit(1);
     }
 
+    let data = ReadSource::new(stdin());
     let clock = Clock::new();
     let window = Window::new(WindowType::Toplevel);
     let da = DrawingArea::new();
@@ -52,8 +49,8 @@ pub fn run<DS>(
         Inhibit(false)
     });
 
-    da.connect_draw(move |_, c| {
-        draw(c, clock.seconds());
+    da.connect_draw(move |_, cr| {
+        renderer.render(cr, &data.get_state());
         Inhibit(true)
     });
 
