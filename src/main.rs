@@ -26,10 +26,14 @@ use udashboard::v1;
 use udashboard::{
     config::{Style, Pattern, Color},
     drm,
-    render::{CairoRenderer, PNGRenderer},
+    render::{CairoRenderer, PNGRenderer, parse},
     data::{State, ReadSource},
     vm
 };
+
+
+const prog: &str = "";
+
 
 fn main() {
     let config = v1::load(args().nth(1).unwrap())
@@ -37,7 +41,7 @@ fn main() {
 
     let renderer = CairoRenderer::new(
         config.screen,
-        vm::Program::new()
+        parse(prog)
     );
 
     if let Some(path) = args().nth(2) {

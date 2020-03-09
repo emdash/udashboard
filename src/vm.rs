@@ -205,7 +205,7 @@ use enumflags2::BitFlags;
 // - use the data section for floating-point immmediates, which isn't
 //   as bad a waste of space as, say, an 8-bit float.
 #[derive(Copy, Clone, Debug)]
-enum Immediate {
+pub enum Immediate {
     Bool(bool),
     Int(i16),    // no issues here, integers are exact.
     Float(f64),  // this is the culprit here, because of rounding.
@@ -242,7 +242,7 @@ enum Immediate {
 // for future optimization. For now, just getting it working is top
 // priority.
 #[derive(Copy, Clone, Debug)]
-enum Opcode<Effect> {
+pub enum Opcode<Effect> {
     Push(Immediate),
     Load,
     Get,
@@ -572,8 +572,8 @@ pub type Env = HashMap<String, Value>;
 // Data is the table of string values.
 #[derive(Clone)]
 pub struct Program<Effect> {
-    code: Vec<Opcode<Effect>>,
-    data: Vec<Value>
+    pub code: Vec<Opcode<Effect>>,
+    pub data: Vec<Value>
 }
 
 
@@ -602,10 +602,6 @@ impl<Effect> Program<Effect> where Effect: Copy {
         } else {
             Err(Error::IllegalAddr(index))
         }
-    }
-
-    pub fn new() -> Program<Effect> {
-        Program {code: vec! {}, data: vec! {}}
     }
 }
 
@@ -691,6 +687,14 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
         env: &Env,
         out: &mut impl Output<Effect>
     ) -> Result<()> {
+        self.pc = 0;
+        self.stack.clear();
+        self.call_stack.clear();
+        self.cur_frame = StackFrame {
+            return_address: 0,
+            frame_pointer: 0,
+            arity: 0
+        };
         // Safe, because we have borrowed env and so by contract it
         // is immutable.
         loop { unsafe {

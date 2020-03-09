@@ -1,5 +1,5 @@
 use crate::render::CairoRenderer;
-use crate::data::{ReadSource, DataSource};
+use crate::data::{ReadSource, DataSource, State};
 use crate::clock::Clock;
 use crate::config::Screen;
 
@@ -52,7 +52,8 @@ pub fn run(screen: Screen, renderer: CairoRenderer) {
         Inhibit(true)
     });
 
-    gtk::idle_add(move || {
+    gtk::timeout_add(50, move || {
+        println!("tick");
         da.queue_draw();
         Continue(true)
     });
