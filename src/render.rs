@@ -34,6 +34,14 @@ use cairo::{Context, Format, ImageSurface};
 const stack_depth: usize = 1024;
 
 
+// Enum for context-specific operations
+#[derive(Copy, Clone, Debug)]
+pub enum CairoOperation {
+    
+}
+
+
+
 pub struct CairoRenderer {
     // XXX: it sucks that need this overhead. The renderer either
     // needs interior mutability for the vm, or else we have to do the
@@ -43,14 +51,14 @@ pub struct CairoRenderer {
     // For Gtk, gtk-rs closures are not FnMut, so we can't capture
     // mutable values in them! what's the goddamn point of that?
     screen: Screen,
-    vm: RefCell<vm::VM>
+    vm: RefCell<vm::VM<CairoOperation>>
 }
 
 
 impl CairoRenderer {
     pub fn new(
         screen: Screen,
-        program: vm::Program
+        program: vm::Program<CairoOperation>
     ) -> CairoRenderer {
         let vm = RefCell::new(vm::VM::new(program, stack_depth));
         CairoRenderer { screen, vm }
