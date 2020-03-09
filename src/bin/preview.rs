@@ -44,5 +44,5 @@ fn main() {
         }
     );
 
-    windowed::run(renderer, ReadSource::new(stdin()));
+    windowed::run(config.screen, renderer, ReadSource::new(stdin()));
 }
