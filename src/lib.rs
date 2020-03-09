@@ -19,6 +19,8 @@
 extern crate cairo;
 extern crate ron;
 extern crate serde;
+extern crate gtk;
+
 
 pub mod ast;
 pub mod clock;
@@ -26,7 +28,7 @@ pub mod config;
 pub mod data;
 pub mod env;
 pub mod drm;
-pub mod gtk;
+pub mod windowed;
 pub mod render;
 pub mod typechecker;
 pub mod v1;

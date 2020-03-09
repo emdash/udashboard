@@ -26,7 +26,7 @@ use udashboard::v1;
 use udashboard::{
     config::{Style, Pattern, Color},
     data::{State, ReadSource},
-    gtk,
+    windowed,
     render::{CairoRenderer, PNGRenderer},
 };
 
@@ -44,5 +44,5 @@ fn main() {
         }
     );
 
-    gtk::run(renderer, ReadSource::new(stdin()));
+    windowed::run(renderer, ReadSource::new(stdin()));
 }
