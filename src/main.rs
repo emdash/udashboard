@@ -37,12 +37,7 @@ fn main() {
 
     let renderer = CairoRenderer::new(
         config.screen,
-        config.pages,
-        Style {
-            background: Pattern::Solid(Color(0.0, 0.0, 0.0, 1.0)),
-            foreground: Pattern::Solid(Color(1.0, 1.0, 1.0, 1.0)),
-            indicator: Pattern::Solid(Color(1.0, 0.0, 0.0, 1.0)),
-        }
+        vm::Program::new()
     );
 
     if let Some(path) = args().nth(2) {

@@ -237,11 +237,11 @@ fn render_loop<DS>(
 
 // Run forever, redrawing the screen as fast as possible, using
 // double-buffering.
-pub fn run<DS> (
+pub fn run(
     device: String,
     renderer: CairoRenderer,
-    data: DS
-) where DS: DataSource {
+    data: impl DataSource
+) {
     let card = Card::open(&device);
 
     // Set up the connection to the GPU ....
