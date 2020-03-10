@@ -570,7 +570,7 @@ pub type Env = HashMap<String, Value>;
 //
 // Code is a sequence of instructions.
 // Data is the table of string values.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Program<Effect> {
     pub code: Vec<Opcode<Effect>>,
     pub data: Vec<Value>
@@ -687,6 +687,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
         env: &Env,
         out: &mut impl Output<Effect>
     ) -> Result<()> {
+        println!("{:?}", &self.program);
         self.pc = 0;
         self.stack.clear();
         self.call_stack.clear();

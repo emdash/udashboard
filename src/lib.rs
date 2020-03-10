@@ -17,9 +17,12 @@
 // <https://www.gnu.org/licenses/>.
 
 extern crate cairo;
+extern crate gtk;
+extern crate regex;
 extern crate ron;
 extern crate serde;
-extern crate gtk;
+#[macro_use]
+extern crate lazy_static;
 
 
 pub mod ast;
