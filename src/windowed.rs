@@ -2,6 +2,8 @@ use crate::render::CairoRenderer;
 use crate::data::{ReadSource, DataSource, State};
 use crate::clock::Clock;
 use crate::config::Screen;
+#[macro_use]
+use crate::util;
 
 use gtk::prelude::*;
 use gtk::*;
@@ -53,7 +55,6 @@ pub fn run(screen: Screen, renderer: CairoRenderer) {
     });
 
     gtk::timeout_add(50, move || {
-        println!("tick");
         da.queue_draw();
         Continue(true)
     });
