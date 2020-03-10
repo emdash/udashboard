@@ -34,5 +34,8 @@ pub mod drm;
 pub mod windowed;
 pub mod render;
 pub mod typechecker;
+#[macro_use]
+pub mod util;
 pub mod v1;
 pub mod vm;
+

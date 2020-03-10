@@ -95,7 +95,7 @@ impl ReadSource {
 
                 match sender.try_send(line) {
                     Ok(_) => (),
-                    Err(TrySendError::Full(_)) => println!("full"),
+                    Err(TrySendError::Full(_)) => (),
                     Err(TrySendError::Disconnected(_)) => {
                         panic!("noooo!");
                     }

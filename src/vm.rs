@@ -687,7 +687,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
         env: &Env,
         out: &mut impl Output<Effect>
     ) -> Result<()> {
-        println!("{:?}", &self.program);
+        trace!("{:?}", &self.program);
         self.pc = 0;
         self.stack.clear();
         self.call_stack.clear();
@@ -728,7 +728,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
         let opcode = self.program.fetch(self.pc)?;
 
         // TODO: if (trace) {
-        println!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
+        trace!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
 
         let result = self.dispatch(opcode, env, out)?;
 
@@ -956,7 +956,7 @@ impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
     // Provided by trait implementatation
     fn emit(&self, value: Value) {
         // This will be generalized later
-        println!("{:?}", value);
+        trace!("{:?}", value);
     }
 
     // Dispatch table for built-in opcodes
@@ -1034,7 +1034,7 @@ mod tests {
     // Useful for debugging in unit tests.
     impl super::Output<TestEffect> for Stdout {
         fn output(&mut self, ef: TestEffect, vm: &mut VM) -> Result<()>{
-            println!("{:?}", vm.pop()?);
+            trace!("{:?}", vm.pop()?);
             Ok(())
         }
     }
@@ -1114,7 +1114,7 @@ mod tests {
     ) {
         let env = HashMap::new();
         let result = eval(stack_limit, expected_final_depth, prog, env);
-        println!("assert_evaluates_to: {:?} == {:?})", &expected_value, &result);
+        trace!("assert_evaluates_to: {:?} == {:?})", &expected_value, &result);
         match (result, expected_value) {
             (Ok(r), Ok(e)) => assert_eq!(r, e),
             (Err(r), Err(e)) => assert_eq!(r, e),
@@ -1137,7 +1137,7 @@ mod tests {
         value: Value,
         expected: Result<Value>
     ) {
-        println!("test_unary({:?})", op);
+        trace!("test_unary({:?})", op);
         assert_evaluates_to(1, single_op_depth(&expected), expected, Program {
             code: vec! {
                 Push(I::Addr(0)),
@@ -1155,7 +1155,7 @@ mod tests {
         b: Value,
         expected: Result<Value>
     ) {
-        println!("test_binary({:?})", op);
+        trace!("test_binary({:?})", op);
         assert_evaluates_to(2, single_op_depth(&expected), expected, Program {
             code: vec! {
                 Push(I::Addr(0)),
