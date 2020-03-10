@@ -32,12 +32,15 @@ use crate::vm::TypeTag;
 use crate::vm::Value;
 use crate::vm::VM;
 
-use std::fs::File;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs;
 use std::rc::Rc;
 
 use cairo;
 use cairo::{Context, Format, ImageSurface};
+use regex::Regex;
+
 
 
 // TODO: promote to env var or cli param ideally this is derived from
@@ -67,57 +70,99 @@ pub struct CairoRenderer {
 }
 
 
-pub fn decode_word(word: &str) -> Option<Opcode<CairoOperation>> {
+pub enum Insn {
+    Op(Opcode<CairoOperation>),
+    Val(Value)
+}
+
+
+// XXX: this function is just a place-holder until I get parsing
+// working via some other mechanism, for example serde, or syn.
+pub fn decode_word(word: &str) -> Option<Insn> {
+    lazy_static! {
+        static ref STR_REGEX: Regex = Regex::new(
+            "\"([^\"]*)\""
+        ).unwrap();
+    }
+
     if word.starts_with("#") {
         if let Ok(x) = word[1..].parse::<usize>() {
-            Some(Opcode::Push(Immediate::Addr(x)))
+            Some(Insn::Val(Value::Addr(x)))
         } else {
             None
         }
+    } else if let Some(captures) = STR_REGEX.captures(word) {
+        let raw = captures.get(1).unwrap().as_str();
+        Some(Insn::Val(Value::Str(Rc::new(String::from(raw)))))
     } else if let Ok(x) = word.parse::<f64>() {
-        Some(Opcode::Push(Immediate::Float(x)))
-    } else if let Ok(x) = word.parse::<i16>() {
-        Some(Opcode::Push(Immediate::Int(x)))
+        Some(Insn::Val(Value::Float(x)))
+    } else if let Ok(x) = word.parse::<i64>() {
+        Some(Insn::Val(Value::Int(x)))
     } else if let Ok(x) = word.parse() {
-        Some(Opcode::Push(Immediate::Bool(x)))
+        Some(Insn::Val(Value::Bool(x)))
     } else {
+        use Insn::*;
+        use Opcode::*;
+        use CairoOperation::*;
         match word {
-            "load" => Some(Opcode::Load),
-            "get" => Some(Opcode::Get),
-            "bool" => Some(Opcode::Coerce(TypeTag::Bool)),
-            "int" => Some(Opcode::Coerce(TypeTag::Int)),
-            "float" => Some(Opcode::Coerce(TypeTag::Float)),
-            "bt" => Some(Opcode::BranchTrue),
-            "bf" => Some(Opcode::BranchTrue),
-            "ba" => Some(Opcode::Branch),
-            "index" => Some(Opcode::Index),
-            "." => Some(Opcode::Dot),
-            "rgb" => Some(Opcode::Disp(CairoOperation::SetSourceRgb)),
-            "rgba" => Some(Opcode::Disp(CairoOperation::SetSourceRgba)),
-            "rect" => Some(Opcode::Disp(CairoOperation::Rect)),
-            "fill" => Some(Opcode::Disp(CairoOperation::Fill)),
-            "stroke" => Some(Opcode::Disp(CairoOperation::Stroke)),
-            "paint" => Some(Opcode::Disp(CairoOperation::Paint)),
-            "!" => Some(Opcode::Break),
+            "load" => Some(Op(Load)),
+            "get" => Some(Op(Get)),
+            "bool" => Some(Op(Coerce(TypeTag::Bool))),
+            "int" => Some(Op(Coerce(TypeTag::Int))),
+            "float" => Some(Op(Coerce(TypeTag::Float))),
+            "bt" => Some(Op(BranchTrue)),
+            "bf" => Some(Op(BranchTrue)),
+            "ba" => Some(Op(Branch)),
+            "index" => Some(Op(Index)),
+            "." => Some(Op(Dot)),
+            "rgb" => Some(Op(Disp(SetSourceRgb))),
+            "rgba" => Some(Op(Disp(SetSourceRgba))),
+            "rect" => Some(Op(Disp(Rect))),
+            "fill" => Some(Op(Disp(Fill))),
+            "stroke" => Some(Op(Disp(Stroke))),
+            "paint" => Some(Op(Disp(Paint))),
+            "!" => Some(Op(Break)),
             _ => None
         }
     }
 }
 
 
-pub fn parse(source: &str) -> Program<CairoOperation> {
-    let code: Option<Vec<Opcode<CairoOperation>>> = source
-        .split_whitespace()
-        .map(|word| decode_word(&word.to_owned()))
-        .collect();
+pub type ParseResult<Effect> = std::result::Result<Program<Effect>, String>;
 
-    Program {
-        code: code.unwrap(),
-        data: vec! {
-            Value::Str(Rc::new(String::from("RPM"))),
-            Value::Str(Rc::new(String::from("ECT"))),
-            Value::Str(Rc::new(String::from("OIL_PRESSURE")))
+
+pub fn parse(source: &str) -> ParseResult<CairoOperation> {
+    let mut code = Vec::new();
+    let mut values: HashMap<&str, usize> = HashMap::new();
+    let mut index: usize = 0;
+    let mut data = Vec::new();
+
+    for (i, word) in source.split_whitespace().enumerate() {
+        match decode_word(&word) {
+            Some(Insn::Val(val)) => if let Some(existing) = values.get(word) {
+                code.push(Opcode::Push(Immediate::Addr(*existing)));
+                code.push(Opcode::Load);
+            } else {
+                values.insert(word, index);
+                data.push(val);
+                code.push(Opcode::Push(Immediate::Addr(index)));
+                code.push(Opcode::Load);
+                index += 1;
+            },
+            Some(Insn::Op(opcode)) => code.push(opcode),
+            None => return Err(String::from(word))
         }
+    }
+
+    Ok(Program {code, data})
+}
+
+
+pub fn load(path: String) -> ParseResult<CairoOperation> {
+    if let Ok(source) = fs::read_to_string(path) {
+        parse(source.as_str())
+    } else {
+        Err(String::from("Couldn't open file"))
     }
 }
 
@@ -133,7 +178,6 @@ impl<'a> Hack<'a> {
         let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
         let r: f64 = vm.pop_into()?;
-        println!("{:?}, {:?}, {:?}", r, g, b);
         self.cr.set_source_rgb(r, g, b);
         Ok(())
     }
@@ -244,7 +288,7 @@ impl PNGRenderer {
         let cr = Context::new(&surface);
 
         self.renderer.render(&cr, state);
-        let mut file = File::create(self.path.clone())
+        let mut file = fs::File::create(self.path.clone())
             .expect("couldn't create file");
         surface.write_to_png(&mut file).unwrap();
     }

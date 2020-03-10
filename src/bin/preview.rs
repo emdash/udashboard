@@ -24,15 +24,13 @@ use std::{
 use udashboard::config::Screen;
 use udashboard::vm;
 use udashboard::windowed;
-use udashboard::render::{CairoRenderer, parse};
-
-const prog: &str = "1.0 0.0 0.0 rgb 0 0 #1 load get #1 load get rect fill";
+use udashboard::render::{CairoRenderer, load};
 
 fn main() {
     let screen = Screen { width: 1024.0, height: 600.0 };
     let renderer = CairoRenderer::new(
         screen,
-        parse(prog)
+        load(args().nth(1).expect("no program file given.")).unwrap()
     );
     windowed::run(screen, renderer);
 }
