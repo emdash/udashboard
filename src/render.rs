@@ -35,6 +35,9 @@ use crate::vm::VM;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[macro_use]
+use std::fmt;
+use std::fmt::Debug;
 use std::fs;
 use std::rc::Rc;
 
@@ -127,26 +130,29 @@ pub fn decode_word(word: &str) -> Option<CairoInsn> {
 pub type ParseResult<Effect> = std::result::Result<Program<Effect>, String>;
 
 
-pub fn parse(source: &str) -> ParseResult<CairoOperation> {
+pub fn decode<E: Copy + Clone + Debug>(insns: Vec<Insn<E>>) -> ParseResult<E>
+{
     let mut code = Vec::new();
-    let mut values: HashMap<&str, usize> = HashMap::new();
+    let mut values: HashMap<String, usize> = HashMap::new();
     let mut index: usize = 0;
     let mut data = Vec::new();
 
-    for (i, word) in source.split_whitespace().enumerate() {
-        match decode_word(&word) {
-            Some(CairoInsn::Val(val)) => if let Some(existing) = values.get(word) {
+    for i in insns {
+        // XXX: Temporary hack to work around the fact that f64
+        // doesn't implement hash apis.
+        let str_repr = format!("{:?}", i);
+        match i {
+            Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
                 code.push(Opcode::Push(Immediate::Addr(*existing)));
                 code.push(Opcode::Load);
             } else {
-                values.insert(word, index);
+                values.insert(str_repr, index);
                 data.push(val);
                 code.push(Opcode::Push(Immediate::Addr(index)));
                 code.push(Opcode::Load);
                 index += 1;
             },
-            Some(CairoInsn::Op(opcode)) => code.push(opcode),
-            None => return Err(String::from(word))
+            Insn::Op(opcode) => code.push(opcode),
         }
     }
 
@@ -156,7 +162,15 @@ pub fn parse(source: &str) -> ParseResult<CairoOperation> {
 
 pub fn load(path: String) -> ParseResult<CairoOperation> {
     if let Ok(source) = fs::read_to_string(path) {
-        parse(source.as_str())
+        let insns: Option<Vec<Insn<CairoOperation>>> = source
+                          .as_str()
+                          .split_whitespace()
+                          .map(|w| Some(decode_word(w)?))
+                          .collect();
+        match insns {
+            Some(insns) => decode(insns),
+            None => Err(String::from("Illegal operation somewhere, g.l. finding it."))
+        }
     } else {
         Err(String::from("Couldn't open file"))
     }
