@@ -178,6 +178,7 @@
 
 use crate::ast::{BinOp, UnOp};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::rc::Rc;
 use enumflags2::BitFlags;
 
@@ -204,7 +205,7 @@ use enumflags2::BitFlags;
 //   useful in their own right.
 // - use the data section for floating-point immmediates, which isn't
 //   as bad a waste of space as, say, an 8-bit float.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Immediate {
     Bool(bool),
     Int(i16),    // no issues here, integers are exact.
@@ -241,7 +242,7 @@ pub enum Immediate {
 // The good news is that doing it this way gives maximum flexibility
 // for future optimization. For now, just getting it working is top
 // priority.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Opcode<Effect> {
     Push(Immediate),
     Load,
@@ -577,7 +578,8 @@ pub struct Program<Effect> {
 }
 
 
-pub enum Insn<Effect> {
+#[derive(Clone, Debug, PartialEq)]
+pub enum Insn<Effect> where Effect: Copy + Clone + Debug {
     Op(Opcode<Effect>),
     Val(Value)
 }
@@ -660,7 +662,7 @@ pub trait Output<Effect> {
 //
 // TODO: Handle integer overflow, and FP NaN as traps, so user code
 // can deal.
-impl<Effect> VM<Effect> where Effect: Copy + std::fmt::Debug {
+impl<Effect> VM<Effect> where Effect: Copy + Debug {
     pub fn new(program: Program<Effect>, depth: usize) -> VM<Effect> {
         VM {
             program: program,
