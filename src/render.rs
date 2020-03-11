@@ -24,6 +24,7 @@ use crate::data::State;
 use crate::vm::Env;
 use crate::vm::Error;
 use crate::vm::Immediate;
+use crate::vm::Insn;
 use crate::vm::Opcode;
 use crate::vm::Output;
 use crate::vm::Program;
@@ -62,6 +63,7 @@ pub enum CairoOperation {
 
 
 type CairoVM = VM<CairoOperation>;
+type CairoInsn = Insn<CairoOperation>;
 
 
 pub struct CairoRenderer {
@@ -70,15 +72,9 @@ pub struct CairoRenderer {
 }
 
 
-pub enum Insn {
-    Op(Opcode<CairoOperation>),
-    Val(Value)
-}
-
-
 // XXX: this function is just a place-holder until I get parsing
 // working via some other mechanism, for example serde, or syn.
-pub fn decode_word(word: &str) -> Option<Insn> {
+pub fn decode_word(word: &str) -> Option<CairoInsn> {
     lazy_static! {
         static ref STR_REGEX: Regex = Regex::new(
             "\"([^\"]*)\""
@@ -139,7 +135,7 @@ pub fn parse(source: &str) -> ParseResult<CairoOperation> {
 
     for (i, word) in source.split_whitespace().enumerate() {
         match decode_word(&word) {
-            Some(Insn::Val(val)) => if let Some(existing) = values.get(word) {
+            Some(CairoInsn::Val(val)) => if let Some(existing) = values.get(word) {
                 code.push(Opcode::Push(Immediate::Addr(*existing)));
                 code.push(Opcode::Load);
             } else {
@@ -149,7 +145,7 @@ pub fn parse(source: &str) -> ParseResult<CairoOperation> {
                 code.push(Opcode::Load);
                 index += 1;
             },
-            Some(Insn::Op(opcode)) => code.push(opcode),
+            Some(CairoInsn::Op(opcode)) => code.push(opcode),
             None => return Err(String::from(word))
         }
     }
