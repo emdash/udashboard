@@ -577,6 +577,12 @@ pub struct Program<Effect> {
 }
 
 
+pub enum Insn<Effect> {
+    Op(Opcode<Effect>),
+    Val(Value)
+}
+
+
 impl<Effect> Program<Effect> where Effect: Copy {
     // Safely fetch the opcode from the given address.
     //
