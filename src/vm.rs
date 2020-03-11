@@ -585,6 +585,39 @@ pub enum Insn<Effect> where Effect: Copy + Clone + Debug {
 }
 
 
+pub type ParseResult<Effect> = std::result::Result<Program<Effect>, String>;
+
+
+pub fn lower<E: Copy + Clone + Debug>(insns: Vec<Insn<E>>) -> ParseResult<E>
+{
+    let mut code = Vec::new();
+    let mut values: HashMap<String, usize> = HashMap::new();
+    let mut index: usize = 0;
+    let mut data = Vec::new();
+
+    for i in insns {
+        // XXX: Temporary hack to work around the fact that f64
+        // doesn't implement hash apis.
+        let str_repr = format!("{:?}", i);
+        match i {
+            Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
+                code.push(Opcode::Push(Immediate::Addr(*existing)));
+                code.push(Opcode::Load);
+            } else {
+                values.insert(str_repr, index);
+                data.push(val);
+                code.push(Opcode::Push(Immediate::Addr(index)));
+                code.push(Opcode::Load);
+                index += 1;
+            },
+            Insn::Op(opcode) => code.push(opcode),
+        }
+    }
+
+    Ok(Program {code, data})
+}
+
+
 impl<Effect> Program<Effect> where Effect: Copy {
     // Safely fetch the opcode from the given address.
     //
