@@ -21,17 +21,15 @@ use crate::ast::BinOp;
 use crate::ast::UnOp;
 use crate::config::Screen;
 use crate::data::State;
+use crate::vm;
 use crate::vm::Env;
 use crate::vm::Error;
-use crate::vm::Immediate;
-use crate::vm::Insn;
 use crate::vm::Opcode;
 use crate::vm::Output;
 use crate::vm::Program;
 use crate::vm::Result;
 use crate::vm::TypeTag;
 use crate::vm::Value;
-use crate::vm::VM;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -65,19 +63,20 @@ pub enum CairoOperation {
 }
 
 
-type CairoVM = VM<CairoOperation>;
-type CairoInsn = Insn<CairoOperation>;
+type VM = vm::VM<CairoOperation>;
+type Insn = vm::Insn<CairoOperation>;
+type ParseResult = vm::ParseResult<CairoOperation>;
 
 
 pub struct CairoRenderer {
     screen: Screen,
-    vm: RefCell<CairoVM>
+    vm: RefCell<VM>
 }
 
 
 // XXX: this function is just a place-holder until I get parsing
 // working via some other mechanism, for example serde, or syn.
-pub fn decode_word(word: &str) -> Option<CairoInsn> {
+pub fn decode_word(word: &str) -> Option<Insn> {
     lazy_static! {
         static ref STR_REGEX: Regex = Regex::new(
             "\"([^\"]*)\""
@@ -100,7 +99,7 @@ pub fn decode_word(word: &str) -> Option<CairoInsn> {
     } else if let Ok(x) = word.parse() {
         Some(Insn::Val(Value::Bool(x)))
     } else {
-        use Insn::*;
+        use vm::Insn::*;
         use Opcode::*;
         use CairoOperation::*;
         match word {
@@ -127,49 +126,18 @@ pub fn decode_word(word: &str) -> Option<CairoInsn> {
 }
 
 
-pub type ParseResult<Effect> = std::result::Result<Program<Effect>, String>;
-
-
-pub fn decode<E: Copy + Clone + Debug>(insns: Vec<Insn<E>>) -> ParseResult<E>
-{
-    let mut code = Vec::new();
-    let mut values: HashMap<String, usize> = HashMap::new();
-    let mut index: usize = 0;
-    let mut data = Vec::new();
-
-    for i in insns {
-        // XXX: Temporary hack to work around the fact that f64
-        // doesn't implement hash apis.
-        let str_repr = format!("{:?}", i);
-        match i {
-            Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
-                code.push(Opcode::Push(Immediate::Addr(*existing)));
-                code.push(Opcode::Load);
-            } else {
-                values.insert(str_repr, index);
-                data.push(val);
-                code.push(Opcode::Push(Immediate::Addr(index)));
-                code.push(Opcode::Load);
-                index += 1;
-            },
-            Insn::Op(opcode) => code.push(opcode),
-        }
-    }
-
-    Ok(Program {code, data})
-}
-
-
-pub fn load(path: String) -> ParseResult<CairoOperation> {
+pub fn load(path: String) -> ParseResult {
     if let Ok(source) = fs::read_to_string(path) {
-        let insns: Option<Vec<Insn<CairoOperation>>> = source
+        let insns: Option<Vec<Insn>> = source
                           .as_str()
                           .split_whitespace()
-                          .map(|w| Some(decode_word(w)?))
+                          .map(decode_word)
                           .collect();
         match insns {
-            Some(insns) => decode(insns),
-            None => Err(String::from("Illegal operation somewhere, g.l. finding it."))
+            Some(insns) => vm::lower(insns),
+            None => Err(String::from(
+                "Illegal operation somewhere, g.l. finding it."
+            ))
         }
     } else {
         Err(String::from("Couldn't open file"))
@@ -184,7 +152,7 @@ struct Hack<'a> {
 
 impl<'a> Hack<'a> {
 
-    fn set_source_rgb(&self, vm: &mut CairoVM) -> Result<()> {
+    fn set_source_rgb(&self, vm: &mut VM) -> Result<()> {
         let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
         let r: f64 = vm.pop_into()?;
@@ -192,7 +160,7 @@ impl<'a> Hack<'a> {
         Ok(())
     }
 
-    fn set_source_rgba(&self, vm: &mut CairoVM) -> Result<()> {
+    fn set_source_rgba(&self, vm: &mut VM) -> Result<()> {
         let a: f64 = vm.pop_into()?;
         let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
@@ -201,7 +169,7 @@ impl<'a> Hack<'a> {
         Ok(())
     }
 
-    fn rect(&self, vm: &mut CairoVM) -> Result<()> {
+    fn rect(&self, vm: &mut VM) -> Result<()> {
         let h: f64 = vm.pop_into()?;
         let w: f64 = vm.pop_into()?;
         let y: f64 = vm.pop_into()?;
@@ -228,7 +196,7 @@ impl<'a> Hack<'a> {
 
 
 impl<'a> Output<CairoOperation> for Hack<'a> {
-    fn output(&mut self, op: CairoOperation, vm: &mut CairoVM) -> Result<()> {
+    fn output(&mut self, op: CairoOperation, vm: &mut VM) -> Result<()> {
         use CairoOperation::*;
         match op {
             SetSourceRgb => self.set_source_rgb(vm),
