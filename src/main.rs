@@ -26,7 +26,7 @@ use udashboard::v1;
 use udashboard::{
     config::{Style, Pattern, Color},
     drm,
-    render::{CairoRenderer, PNGRenderer, load},
+    render::{CairoRenderer, PNGRenderer},
     data::{State, ReadSource},
     vm
 };
@@ -38,7 +38,7 @@ fn main() {
 
     let renderer = CairoRenderer::new(
         config.screen,
-        load(args().nth(1).expect("no program file given.")).unwrap()
+        vm::load(args().nth(1).expect("no program file given.")).unwrap()
     );
 
     if let Some(path) = args().nth(2) {

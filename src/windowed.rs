@@ -1,9 +1,8 @@
 use crate::render::CairoRenderer;
-use crate::data::{ReadSource, DataSource, State};
+use crate::data::{ReadSource, DataSource};
 use crate::clock::Clock;
 use crate::config::Screen;
-#[macro_use]
-use crate::util;
+
 
 use gtk::prelude::*;
 use gtk::*;

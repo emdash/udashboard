@@ -17,31 +17,23 @@
 // <https://www.gnu.org/licenses/>.
 
 // Cairo rendering implementation
-use crate::ast::BinOp;
-use crate::ast::UnOp;
+use crate::ast::{CairoOp};
 use crate::config::Screen;
 use crate::data::State;
-use crate::vm;
+use crate::vm::VM;
 use crate::vm::Env;
-use crate::vm::Error;
-use crate::vm::Opcode;
 use crate::vm::Output;
 use crate::vm::Program;
 use crate::vm::Result;
-use crate::vm::TypeTag;
 use crate::vm::Value;
 
+
 use std::cell::RefCell;
-use std::collections::HashMap;
 #[macro_use]
-use std::fmt;
-use std::fmt::Debug;
 use std::fs;
-use std::rc::Rc;
 
 use cairo;
 use cairo::{Context, Format, ImageSurface};
-use regex::Regex;
 
 
 
@@ -51,97 +43,9 @@ use regex::Regex;
 const stack_depth: usize = 1024;
 
 
-// Enum for context-specific operations
-#[derive(Copy, Clone, Debug)]
-pub enum CairoOperation {
-    SetSourceRgb,
-    SetSourceRgba,
-    Rect,
-    Fill,
-    Stroke,
-    Paint
-}
-
-
-type VM = vm::VM<CairoOperation>;
-type Insn = vm::Insn<CairoOperation>;
-type ParseResult = vm::ParseResult<CairoOperation>;
-
-
 pub struct CairoRenderer {
     screen: Screen,
     vm: RefCell<VM>
-}
-
-
-// XXX: this function is just a place-holder until I get parsing
-// working via some other mechanism, for example serde, or syn.
-pub fn decode_word(word: &str) -> Option<Insn> {
-    lazy_static! {
-        static ref STR_REGEX: Regex = Regex::new(
-            "\"([^\"]*)\""
-        ).unwrap();
-    }
-
-    if word.starts_with("#") {
-        if let Ok(x) = word[1..].parse::<usize>() {
-            Some(Insn::Val(Value::Addr(x)))
-        } else {
-            None
-        }
-    } else if let Some(captures) = STR_REGEX.captures(word) {
-        let raw = captures.get(1).unwrap().as_str();
-        Some(Insn::Val(Value::Str(Rc::new(String::from(raw)))))
-    } else if let Ok(x) = word.parse::<f64>() {
-        Some(Insn::Val(Value::Float(x)))
-    } else if let Ok(x) = word.parse::<i64>() {
-        Some(Insn::Val(Value::Int(x)))
-    } else if let Ok(x) = word.parse() {
-        Some(Insn::Val(Value::Bool(x)))
-    } else {
-        use vm::Insn::*;
-        use Opcode::*;
-        use CairoOperation::*;
-        match word {
-            "load" => Some(Op(Load)),
-            "get" => Some(Op(Get)),
-            "bool" => Some(Op(Coerce(TypeTag::Bool))),
-            "int" => Some(Op(Coerce(TypeTag::Int))),
-            "float" => Some(Op(Coerce(TypeTag::Float))),
-            "bt" => Some(Op(BranchTrue)),
-            "bf" => Some(Op(BranchTrue)),
-            "ba" => Some(Op(Branch)),
-            "index" => Some(Op(Index)),
-            "." => Some(Op(Dot)),
-            "rgb" => Some(Op(Disp(SetSourceRgb))),
-            "rgba" => Some(Op(Disp(SetSourceRgba))),
-            "rect" => Some(Op(Disp(Rect))),
-            "fill" => Some(Op(Disp(Fill))),
-            "stroke" => Some(Op(Disp(Stroke))),
-            "paint" => Some(Op(Disp(Paint))),
-            "!" => Some(Op(Break)),
-            _ => None
-        }
-    }
-}
-
-
-pub fn load(path: String) -> ParseResult {
-    if let Ok(source) = fs::read_to_string(path) {
-        let insns: Option<Vec<Insn>> = source
-                          .as_str()
-                          .split_whitespace()
-                          .map(decode_word)
-                          .collect();
-        match insns {
-            Some(insns) => vm::lower(insns),
-            None => Err(String::from(
-                "Illegal operation somewhere, g.l. finding it."
-            ))
-        }
-    } else {
-        Err(String::from("Couldn't open file"))
-    }
 }
 
 
@@ -195,9 +99,9 @@ impl<'a> Hack<'a> {
 }
 
 
-impl<'a> Output<CairoOperation> for Hack<'a> {
-    fn output(&mut self, op: CairoOperation, vm: &mut VM) -> Result<()> {
-        use CairoOperation::*;
+impl<'a> Output for Hack<'a> {
+    fn output(&mut self, op: CairoOp, vm: &mut VM) -> Result<()> {
+        use CairoOp::*;
         match op {
             SetSourceRgb => self.set_source_rgb(vm),
             SetSourceRgba => self.set_source_rgba(vm),
@@ -213,7 +117,7 @@ impl<'a> Output<CairoOperation> for Hack<'a> {
 impl CairoRenderer {
     pub fn new(
         screen: Screen,
-        program: Program<CairoOperation>
+        program: Program
     ) -> CairoRenderer {
         let vm = RefCell::new(VM::new(program, stack_depth));
         CairoRenderer { screen, vm }

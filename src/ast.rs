@@ -9,6 +9,19 @@ pub type AList<T> = Vec<(String, Node<T>)>;
 pub type Map<T> = HashMap<String, Node<T>>;
 
 
+// Enum for cairo-specific operations
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CairoOp {
+    SetSourceRgb,
+    SetSourceRgba,
+    Rect,
+    Fill,
+    Stroke,
+    Paint
+        // TODO: the rest of the api
+}
+
+
 // Arithmetic and logic operations
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
