@@ -176,11 +176,13 @@
 //   verify this.
 
 
-use crate::ast::{BinOp, UnOp};
+use crate::ast::{BinOp, UnOp, CairoOp};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 use enumflags2::BitFlags;
+use regex::Regex;
+use std::fs;
 
 
 
@@ -243,7 +245,7 @@ pub enum Immediate {
 // for future optimization. For now, just getting it working is top
 // priority.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Opcode<Effect> {
+pub enum Opcode {
     Push(Immediate),
     Load,
     Get,
@@ -261,7 +263,7 @@ pub enum Opcode<Effect> {
     Index,
     Dot,
     Expect(TypeTag),
-    Disp(Effect),
+    Disp(CairoOp),
     Break,
 }
 
@@ -271,9 +273,6 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 
 // All valid values
-//
-// TODO: some sensible strategy for handling strings.
-// Todo: add the container types.
 #[derive(Clone, Debug)]
 pub enum Value {
     Bool(bool),
@@ -572,23 +571,94 @@ pub type Env = HashMap<String, Value>;
 // Code is a sequence of instructions.
 // Data is the table of string values.
 #[derive(Clone, Debug)]
-pub struct Program<Effect> {
-    pub code: Vec<Opcode<Effect>>,
+pub struct Program {
+    pub code: Vec<Opcode>,
     pub data: Vec<Value>
 }
 
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Insn<Effect> where Effect: Copy + Clone + Debug {
-    Op(Opcode<Effect>),
+pub enum Insn where {
+    Op(Opcode),
     Val(Value)
 }
 
 
-pub type ParseResult<Effect> = std::result::Result<Program<Effect>, String>;
+// XXX: this function is just a place-holder until I get parsing
+// working via some other mechanism, for example serde, or syn.
+pub fn decode_word(word: &str) -> Option<Insn> {
+    lazy_static! {
+        static ref STR_REGEX: Regex = Regex::new(
+            "\"([^\"]*)\""
+        ).unwrap();
+    }
+
+    if word.starts_with("#") {
+        if let Ok(x) = word[1..].parse::<usize>() {
+            Some(Insn::Val(Value::Addr(x)))
+        } else {
+            None
+        }
+    } else if let Some(captures) = STR_REGEX.captures(word) {
+        let raw = captures.get(1).unwrap().as_str();
+        Some(Insn::Val(Value::Str(Rc::new(String::from(raw)))))
+    } else if let Ok(x) = word.parse::<f64>() {
+        Some(Insn::Val(Value::Float(x)))
+    } else if let Ok(x) = word.parse::<i64>() {
+        Some(Insn::Val(Value::Int(x)))
+    } else if let Ok(x) = word.parse() {
+        Some(Insn::Val(Value::Bool(x)))
+    } else {
+        use Insn::*;
+        use Opcode::*;
+        use CairoOp::*;
+        match word {
+            "load" => Some(Op(Load)),
+            "get" => Some(Op(Get)),
+            "bool" => Some(Op(Coerce(TypeTag::Bool))),
+            "int" => Some(Op(Coerce(TypeTag::Int))),
+            "float" => Some(Op(Coerce(TypeTag::Float))),
+            "bt" => Some(Op(BranchTrue)),
+            "bf" => Some(Op(BranchTrue)),
+            "ba" => Some(Op(Branch)),
+            "index" => Some(Op(Index)),
+            "." => Some(Op(Dot)),
+            "rgb" => Some(Op(Disp(SetSourceRgb))),
+            "rgba" => Some(Op(Disp(SetSourceRgba))),
+            "rect" => Some(Op(Disp(Rect))),
+            "fill" => Some(Op(Disp(Fill))),
+            "stroke" => Some(Op(Disp(Stroke))),
+            "paint" => Some(Op(Disp(Paint))),
+            "!" => Some(Op(Break)),
+            _ => None
+        }
+    }
+}
 
 
-pub fn lower<E: Copy + Clone + Debug>(insns: Vec<Insn<E>>) -> ParseResult<E>
+pub fn load(path: String) -> ParseResult {
+    if let Ok(source) = fs::read_to_string(path) {
+        let insns: Option<Vec<Insn>> = source
+                          .as_str()
+                          .split_whitespace()
+                          .map(decode_word)
+                          .collect();
+        match insns {
+            Some(insns) => lower(insns),
+            None => Err(String::from(
+                "Illegal operation somewhere, g.l. finding it."
+            ))
+        }
+    } else {
+        Err(String::from("Couldn't open file"))
+    }
+}
+
+
+pub type ParseResult = std::result::Result<Program, String>;
+
+
+pub fn lower(insns: Vec<Insn>) -> ParseResult
 {
     let mut code = Vec::new();
     let mut values: HashMap<String, usize> = HashMap::new();
@@ -618,11 +688,11 @@ pub fn lower<E: Copy + Clone + Debug>(insns: Vec<Insn<E>>) -> ParseResult<E>
 }
 
 
-impl<Effect> Program<Effect> where Effect: Copy {
+impl Program {
     // Safely fetch the opcode from the given address.
     //
     // The address is simply the index into the instruction sequence.
-    fn fetch(&self, index: usize) -> Result<Opcode<Effect>> {
+    fn fetch(&self, index: usize) -> Result<Opcode> {
         let len = self.code.len();
 
         if index < len {
@@ -655,8 +725,8 @@ struct StackFrame {
 
 
 // The entire VM state.
-pub struct VM<Effect> {
-    program: Program<Effect>,
+pub struct VM {
+    program: Program,
     stack: Stack,
     call_stack: Vec<StackFrame>,
     cur_frame: StackFrame,
@@ -673,8 +743,8 @@ pub enum ControlFlow {
 
 
 // trait for capturing VM debug output (result of Disp opcode)
-pub trait Output<Effect> {
-    fn output(&mut self, ef: Effect, vm: &mut VM<Effect>) -> Result<()>;
+pub trait Output {
+    fn output(&mut self, ef: CairoOp, vm: &mut VM) -> Result<()>;
 }
 
 
@@ -695,8 +765,8 @@ pub trait Output<Effect> {
 //
 // TODO: Handle integer overflow, and FP NaN as traps, so user code
 // can deal.
-impl<Effect> VM<Effect> where Effect: Copy + Debug {
-    pub fn new(program: Program<Effect>, depth: usize) -> VM<Effect> {
+impl VM where {
+    pub fn new(program: Program, depth: usize) -> VM {
         VM {
             program: program,
             stack: Stack::with_capacity(depth),
@@ -726,7 +796,7 @@ impl<Effect> VM<Effect> where Effect: Copy + Debug {
     pub fn exec(
         &mut self,
         env: &Env,
-        out: &mut impl Output<Effect>
+        out: &mut impl Output
     ) -> Result<()> {
         trace!("{:?}", &self.program);
         self.pc = 0;
@@ -764,7 +834,7 @@ impl<Effect> VM<Effect> where Effect: Copy + Debug {
     pub unsafe fn step(
         &mut self,
         env: &Env,
-        out: &mut impl Output<Effect>
+        out: &mut impl Output
     ) -> Result<()> {
         let opcode = self.program.fetch(self.pc)?;
 
@@ -987,8 +1057,8 @@ impl<Effect> VM<Effect> where Effect: Copy + Debug {
     // Emit the top of stack as output.
     fn disp(
         &mut self,
-        e: Effect,
-        out: &mut impl Output<Effect>
+        e: CairoOp,
+        out: &mut impl Output
     ) -> Result<ControlFlow> {
         out.output(e, self);
         Ok(ControlFlow::Advance)
@@ -1003,9 +1073,9 @@ impl<Effect> VM<Effect> where Effect: Copy + Debug {
     // Dispatch table for built-in opcodes
     fn dispatch(
         &mut self,
-        op: Opcode<Effect>,
+        op: Opcode,
         env: &Env,
-        out: &mut impl Output<Effect>
+        out: &mut impl Output
     ) -> Result<ControlFlow> {
         match op {
             Opcode::Push(i)     => self.push(i.into()),
@@ -1055,34 +1125,31 @@ mod tests {
     use super::Env;
     use std::io::Stdout;
 
-    #[derive(Copy, Clone, Debug)]
-    enum TestEffect { Foo, Bar, Baz }
-
-    type VM = super::VM<TestEffect>;
-    type Program = super::Program<TestEffect>;
-    type Opcode = super::Opcode<TestEffect>;
-    type Output = dyn super::Output<TestEffect>;
+    type VM = super::VM;
+    type Program = super::Program;
+    type Opcode = super::Opcode;
+    type Output = dyn super::Output;
 
     use super::Opcode::*;
 
-    impl super::Output<TestEffect> for () {
-        fn output(&mut self, _: TestEffect, vm: &mut VM) -> Result<()> {
+    impl super::Output for () {
+        fn output(&mut self, _: CairoOp, vm: &mut VM) -> Result<()> {
             let _ = vm.pop()?;
             Ok(())
         }
     }
 
     // Useful for debugging in unit tests.
-    impl super::Output<TestEffect> for Stdout {
-        fn output(&mut self, ef: TestEffect, vm: &mut VM) -> Result<()>{
+    impl super::Output for Stdout {
+        fn output(&mut self, ef: CairoOp, vm: &mut VM) -> Result<()>{
             trace!("{:?}", vm.pop()?);
             Ok(())
         }
     }
 
     // Used for explicitly testing the effect mechanism.
-    impl super::Output<TestEffect> for Vec<super::Value> {
-        fn output(&mut self, ef: TestEffect, vm: &mut VM) -> Result<()>{
+    impl super::Output for Vec<super::Value> {
+        fn output(&mut self, ef: CairoOp, vm: &mut VM) -> Result<()>{
             self.push(vm.pop()?);
             Ok(())
         }
@@ -1739,11 +1806,11 @@ mod tests {
         let prog = Program {
             code: vec! {
                 Push(I::Int(1)),
-                Disp(TestEffect::Foo),
+                Disp(CairoOp::Rect),
                 Push(I::Bool(true)),
-                Disp(TestEffect::Bar),
+                Disp(CairoOp::Rect),
                 Push(I::Float(1.0)),
-                Disp(TestEffect::Baz)
+                Disp(CairoOp::Rect)
             },
             data: vec! {}
         };
