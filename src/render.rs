@@ -57,9 +57,10 @@ struct Hack<'a> {
 impl<'a> Hack<'a> {
 
     fn set_source_rgb(&self, vm: &mut VM) -> Result<()> {
-        let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
+        let g: f64 = vm.pop_into()?;
         let r: f64 = vm.pop_into()?;
+        println!("rgb({:?}, {:?}, {:?})", r, g, b);
         self.cr.set_source_rgb(r, g, b);
         Ok(())
     }
@@ -69,6 +70,7 @@ impl<'a> Hack<'a> {
         let g: f64 = vm.pop_into()?;
         let b: f64 = vm.pop_into()?;
         let r: f64 = vm.pop_into()?;
+        println!("rgba({:?}, {:?}, {:?}, {:?})", r, g, b, a);
         self.cr.set_source_rgba(r, g, b, a);
         Ok(())
     }
@@ -78,21 +80,25 @@ impl<'a> Hack<'a> {
         let w: f64 = vm.pop_into()?;
         let y: f64 = vm.pop_into()?;
         let x: f64 = vm.pop_into()?;
+        println!("rect({:?}, {:?}, {:?}, {:?})", x, y, w, h);
         self.cr.rectangle(x, y, w, h);
         Ok(())
     }
 
     fn fill(&self) -> Result<()> {
+        println!("fill");
         self.cr.fill();
         Ok(())
     }
 
     fn stroke(&self) -> Result<()> {
+        println!("stroke");
         self.cr.stroke();
         Ok(())
     }
 
     fn paint(&self) -> Result<()> {
+        println!("paint");
         self.cr.paint();
         Ok(())
     }
