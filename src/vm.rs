@@ -442,6 +442,7 @@ impl Value {
     } }
 
     operator! { bin shl { (Int(a), Int(b)) => Int(a << b) } }
+
     operator! { bin shr { (Int(a), Int(b)) => Int(a >> b) } }
 
     operator! { un not (TypeTag::Bool | TypeTag::Int) {
@@ -482,7 +483,8 @@ impl Value {
         (List(a),  List(b))  => Bool(a == b),
         (Map(a),   Map(b))   => Bool(a == b),
         (Addr(a),  Addr(b))  => Bool(a == b),
-        _                    => Bool(false)
+        // Evaluate to false on type mismatch
+        (_,        _)        => Bool(false)
     } }
 
     pub fn get_type(&self) -> TypeTag {
@@ -618,9 +620,33 @@ pub fn decode_word(word: &str) -> Option<Insn> {
 
     if word.starts_with("#") {
         Some(Insn::LabelRef(String::from(&word[1..])))
+    } else if word.starts_with("drop:") {
+        if let Ok(n) = word[5..].parse::<u8>() {
+            Some(Insn::Op(Opcode::Drop(n)))
+        } else {
+            None
+        }
     } else if word.starts_with("dup:") {
         if let Ok(n) = word[4..].parse::<u8>() {
             Some(Insn::Op(Opcode::Dup(n)))
+        } else {
+            None
+        }
+    } else if word.starts_with("arg:") {
+        if let Ok(n) = word[4..].parse::<u8>() {
+            Some(Insn::Op(Opcode::Arg(n)))
+        } else {
+            None
+        }
+    } else if word.starts_with("call:") {
+        if let Ok(n) = word[5..].parse::<u8>() {
+            Some(Insn::Op(Opcode::Call(n)))
+        } else {
+            None
+        }
+    } else if word.starts_with("ret:") {
+        if let Ok(n) = word[4..].parse::<u8>() {
+            Some(Insn::Op(Opcode::Ret(n)))
         } else {
             None
         }
@@ -651,6 +677,22 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "*" => Some(Op(Binary(BinOp::Mul))),
             "/" => Some(Op(Binary(BinOp::Div))),
             "%" => Some(Op(Binary(BinOp::Mod))),
+            "**" => Some(Op(Binary(BinOp::Pow))),
+            "and" => Some(Op(Binary(BinOp::And))),
+            "or" => Some(Op(Binary(BinOp::Or))),
+            "xor" => Some(Op(Binary(BinOp::Xor))),
+            "<" => Some(Op(Binary(BinOp::Lt))),
+            ">" => Some(Op(Binary(BinOp::Gt))),
+            ">=" => Some(Op(Binary(BinOp::Gte))),
+            "<=" => Some(Op(Binary(BinOp::Lte))),
+            "==" => Some(Op(Binary(BinOp::Eq))),
+            "<<" => Some(Op(Binary(BinOp::Shl))),
+            ">>" => Some(Op(Binary(BinOp::Shr))),
+            "min" => Some(Op(Binary(BinOp::Min))),
+            "max" => Some(Op(Binary(BinOp::Max))),
+            "not" => Some(Op(Unary(UnOp::Not))),
+            "neg" => Some(Op(Unary(UnOp::Neg))),
+            "abs" => Some(Op(Unary(UnOp::Abs))),
             "bt" => Some(Op(BranchTrue)),
             "bf" => Some(Op(BranchFalse)),
             "ba" => Some(Op(Branch)),
@@ -662,7 +704,8 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "fill" => Some(Op(Disp(Fill))),
             "stroke" => Some(Op(Disp(Stroke))),
             "paint" => Some(Op(Disp(Paint))),
-            "!" => Some(Op(Break)),
+            "break" => Some(Op(Break)),
+            "halt" => Some(Op(Halt)),
             _ => None
         }
     }
@@ -842,7 +885,7 @@ pub trait Output {
 //
 // TODO: Handle integer overflow, and FP NaN as traps, so user code
 // can deal.
-impl VM where {
+impl VM {
     pub fn new(program: Program, depth: usize) -> VM {
         VM {
             program: program,
