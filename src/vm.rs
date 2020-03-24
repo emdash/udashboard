@@ -1142,12 +1142,6 @@ impl VM where {
         Ok(ControlFlow::Advance)
     }
 
-    // Provided by trait implementatation
-    fn emit(&self, value: Value) {
-        // This will be generalized later
-        trace!("{:?}", value);
-    }
-
     // Dispatch table for built-in opcodes
     fn dispatch(
         &mut self,
