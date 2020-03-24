@@ -1094,7 +1094,7 @@ impl VM where {
         let index: usize = self.pop_into()?;
         let list: Rc<Vec<Value>> = self.pop_into()?;
         if index < list.len() {
-            self.push(list[index].clone());
+            self.push(list[index].clone())?;
             Ok(ControlFlow::Advance)
         } else {
             Err(Error::IndexError(index))
@@ -1107,7 +1107,7 @@ impl VM where {
         let key = key.to_string();
         let map: Rc<Env> = self.pop_into()?;
         if let Some(value) = map.get(&key) {
-            self.push(value.clone());
+            self.push(value.clone())?;
             Ok(ControlFlow::Advance)
         } else {
             Err(Error::KeyError(key))
@@ -1138,7 +1138,7 @@ impl VM where {
         e: CairoOp,
         out: &mut impl Output
     ) -> Result<ControlFlow> {
-        out.output(e, self);
+        out.output(e, self)?;
         Ok(ControlFlow::Advance)
     }
 
