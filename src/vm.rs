@@ -443,7 +443,12 @@ impl Value {
 
     operator! { bin shl { (Int(a), Int(b)) => Int(a << b) } }
     operator! { bin shr { (Int(a), Int(b)) => Int(a >> b) } }
-    operator! { un not (BitFlags::from_flag(TypeTag::Bool)) { Bool(a) => Bool(!a) } }
+
+    operator! { un not (TypeTag::Bool | TypeTag::Int) {
+        Bool(a) => Bool(!a),
+        Int(a) => Int(!a)
+    } }
+
     operator! { un neg (TypeTag::Int | TypeTag::Float) {
         Int(a) => Int(-a),
         Float(a) => Float(-a)
@@ -1375,11 +1380,11 @@ mod tests {
         test_unary(Neg, Bool(true), te(TT::Int | TT::Float, TT::Bool));
         test_unary(Abs, Bool(false), te(TT::Int | TT::Float, TT::Bool));
 
-        test_unary(Not, Int(1), te(!!TT::Bool, TT::Int));
+        test_unary(Not, Int(1), Ok(Int(-2)));
         test_unary(Neg, Int(1), Ok(Int(-1)));
         test_unary(Abs, Int(-1), Ok(Int(1)));
 
-        test_unary(Not, Float(1.0), te(!!TT::Bool, TT::Float));
+        test_unary(Not, Float(1.0), te(TT::Bool | TT::Int, TT::Float));
         test_unary(Neg, Float(1.0), Ok(Float(-1.0)));
         test_unary(Abs, Float(-1.0), Ok(Float(1.0)));
     }
