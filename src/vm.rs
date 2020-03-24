@@ -588,9 +588,9 @@ pub struct Program {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Insn where {
     Op(Opcode),
+    Label(String),
+    LabelRef(String),
     Val(Value),
-    BlockBegin(u8),
-    BlockEnd(u8),
 }
 
 
@@ -603,12 +603,16 @@ pub fn decode_word(word: &str) -> Option<Insn> {
         ).unwrap();
     }
 
+    lazy_static! {
+        static ref LABEL_REGEX: Regex = Regex::new(
+            "([a-zA-Z0-9_-]+):"
+        ).unwrap();
+    }
+
+    println!("{:?}", word);
+
     if word.starts_with("#") {
-        if let Ok(x) = word[1..].parse::<usize>() {
-            Some(Insn::Val(Value::Addr(x)))
-        } else {
-            None
-        }
+        Some(Insn::LabelRef(String::from(&word[1..])))
     } else if word.starts_with("dup:") {
         if let Ok(n) = word[4..].parse::<u8>() {
             Some(Insn::Op(Opcode::Dup(n)))
@@ -618,10 +622,13 @@ pub fn decode_word(word: &str) -> Option<Insn> {
     } else if let Some(captures) = STR_REGEX.captures(word) {
         let raw = captures.get(1).unwrap().as_str();
         Some(Insn::Val(Value::Str(Rc::new(String::from(raw)))))
-    } else if let Ok(x) = word.parse::<f64>() {
-        Some(Insn::Val(Value::Float(x)))
+    } else if let Some(captures) = LABEL_REGEX.captures(word) {
+        let raw = captures.get(1).unwrap().as_str();
+        Some(Insn::Label(String::from(raw)))
     } else if let Ok(x) = word.parse::<i64>() {
         Some(Insn::Val(Value::Int(x)))
+    } else if let Ok(x) = word.parse::<f64>() {
+        Some(Insn::Val(Value::Float(x)))
     } else if let Ok(x) = word.parse() {
         Some(Insn::Val(Value::Bool(x)))
     } else {
@@ -634,13 +641,13 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "bool" => Some(Op(Coerce(TypeTag::Bool))),
             "int" => Some(Op(Coerce(TypeTag::Int))),
             "float" => Some(Op(Coerce(TypeTag::Float))),
-            "bt" => Some(Op(BranchTrue)),
-            "bf" => Some(Op(BranchTrue)),
             "+" => Some(Op(Binary(BinOp::Add))),
             "-" => Some(Op(Binary(BinOp::Sub))),
             "*" => Some(Op(Binary(BinOp::Mul))),
             "/" => Some(Op(Binary(BinOp::Div))),
             "%" => Some(Op(Binary(BinOp::Mod))),
+            "bt" => Some(Op(BranchTrue)),
+            "bf" => Some(Op(BranchFalse)),
             "ba" => Some(Op(Branch)),
             "index" => Some(Op(Index)),
             "." => Some(Op(Dot)),
@@ -651,8 +658,6 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "stroke" => Some(Op(Disp(Stroke))),
             "paint" => Some(Op(Disp(Paint))),
             "!" => Some(Op(Break)),
-            "[" => Some(BlockBegin(0)),
-            "]" => Some(BlockEnd(0)),
             _ => None
         }
     }
@@ -666,6 +671,7 @@ pub fn load(path: String) -> ParseResult {
                           .split_whitespace()
                           .map(decode_word)
                           .collect();
+
         match insns {
             Some(insns) => lower(insns),
             None => Err(String::from(
@@ -681,55 +687,49 @@ pub fn load(path: String) -> ParseResult {
 pub type ParseResult = std::result::Result<Program, String>;
 
 
-// For the lowering phase, we still have some meta instructions
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum IntInsn {
-    Op(Opcode),
-    BlockRef(usize)
+// Convert labels to addresses.
+pub fn filter_labels(insns: Vec<Insn>) -> Vec<Opcode> {
+    let mut with_labels_removed = Vec::new();
+    let mut labels = HashMap::new();
+    for i in insns {
+        match i {
+            Insn::Label(name) => {
+                let index = with_labels_removed.len();
+                let op = Opcode::Push(Immediate::Addr(index));
+                labels.insert(name, op);
+            },
+            insn => with_labels_removed.push(insn)
+        }
+    }
+
+    println!("{:?}", labels);
+
+    let mut ret = Vec::new();
+    for i in with_labels_removed {
+        match i {
+            Insn::LabelRef(name) => ret.push(
+                labels.get(&name).expect(&("name error: ".to_owned() + &name)).clone()
+            ),
+            Insn::Op(op) => ret.push(op),
+            _ => panic!("unpossible")
+        }
+    }
+
+    ret
 }
 
 
 // Lower the externa representation to the internal one.
 //
-// This is not a one-to-one translation, and is more easily expressed
-// using internal mutable state.
+// First, immediates are converted to load instructions
+// Then we convert labels to direct addresses.
 pub fn lower(insns: Vec<Insn>) -> ParseResult
 {
-    let mut blocks = Vec::new();
-    // XXX: RefCell truly is un-necessary here, but borrow checker don't care!
-    let block_stack: RefCell<Vec<Vec<IntInsn>>> = RefCell::new(Vec::new());
     let mut values: HashMap<String, usize> = HashMap::new();
     let mut data = Vec::new();
+    let mut code = Vec::new();
 
-    // Append the opcode to the current block
-    let emit = |insn: IntInsn| {
-        // There will not be a block to push into for the top-level block.
-        // This is OK, we already check for underflow in pop_block().
-        if let Some(block) = block_stack.borrow_mut().last_mut() {
-            block.push(insn);
-        }
-    };
-
-    // Begin a nested block, adding it to the stack
-    let push_block = |nargs: u8| {
-        block_stack.borrow_mut().push(Vec::new());
-    };
-
-    // Finish a nested block, return to the outer block
-    let mut pop_block = |nrets: u8| {
-        // first pull the completed block record off the stack.
-        let blk = block_stack.borrow_mut().pop().expect("Mismtached ]");
-
-        // add the block to the block list
-        blocks.push(blk);
-        // The block gets replaced with a reference to itself in the
-        // instruction stream in the enclosing block.
-        emit(IntInsn::BlockRef(blocks.len() - 1));
-    };
-
-    // Push the top-level block.
-    push_block(0);
-
+    // Lower Immediate values to load / store instructions.
     for i in insns {
         // XXX: Temporary hack to work around the fact that f64
         // doesn't implement hash apis. Equivalent values should
@@ -737,48 +737,23 @@ pub fn lower(insns: Vec<Insn>) -> ParseResult
         let str_repr = format!("{:?}", i);
         match i {
             Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
-                emit(IntInsn::Op(Opcode::Push(Immediate::Addr(*existing))));
-                emit(IntInsn::Op(Opcode::Load));
+                code.push(Insn::Op(Opcode::Push(Immediate::Addr(*existing))));
+                code.push(Insn::Op(Opcode::Load));
             } else {
                 let index = data.len();
                 values.insert(str_repr, index);
                 data.push(val);
-                emit(IntInsn::Op(Opcode::Push(Immediate::Addr(index))));
-                emit(IntInsn::Op(Opcode::Load));
+                code.push(Insn::Op(Opcode::Push(Immediate::Addr(index))));
+                code.push(Insn::Op(Opcode::Load));
             },
-            Insn::Op(opcode) => emit(IntInsn::Op(opcode)),
-            Insn::BlockBegin(nargs) => push_block(nargs),
-            Insn::BlockEnd(nrets) => pop_block(nrets)
+            insn => code.push(insn)
         }
     }
 
-    // Pop the implicit top-level block.
-    // All code is now in the blocks vector.
-    pop_block(0);
+    let code = filter_labels(code);
 
-    // Replace implicit return from top-level block with halt
-    *blocks.last_mut().unwrap().last_mut().unwrap() = IntInsn::Op(Opcode::Halt);
-
-    // Calculate the address for each block.
-    blocks.reverse();
-    let mut block_addrs = Vec::new();
-    let mut cur_addr = 0;
-    for block in blocks.iter() {
-        block_addrs.push(Opcode::Push(Immediate::Addr(cur_addr)));
-        cur_addr += block.len();
-    }
-
-    // Lower the intermediate instructions down to the internal instructions
-    let code = blocks.iter().cloned().flatten().map(|x| match x {
-        // Opcodes get passed through as-is
-        IntInsn::Op(opcode) => opcode,
-        IntInsn::BlockRef(block_index) => block_addrs[
-            blocks.len() - block_index - 1
-        ]
-    }).collect();
-
-    for i in &code {
-        println!("{:?}", i);
+    for (i, ii) in code.iter().enumerate() {
+        println!("{:?} {:?}", i, ii);
     }
 
     Ok(Program {code, data})
@@ -936,7 +911,7 @@ impl VM where {
         let opcode = self.program.fetch(self.pc)?;
 
         // TODO: if (trace) {
-        trace!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
+        println!("{:?} {:?} {:?}", self.pc, opcode, self.stack);
 
         let result = self.dispatch(opcode, env, out)?;
 

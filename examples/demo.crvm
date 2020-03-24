@@ -1,3 +1,9 @@
-1.0 0.0 0.0 rgb
-0 0 "ECT" get "ECT" get rect
-fill
+"SESSION_TIME" get int 2 % bool #red bt
+green:
+  0.0 1.0 0.0 rgb
+  #rect ba
+red:
+  1.0 0.0 0.0 rgb
+rect:
+  0.0 0.0 "ECT" get dup:1 rect
+  fill
