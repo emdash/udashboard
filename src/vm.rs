@@ -177,6 +177,7 @@
 
 
 use crate::ast::{BinOp, UnOp, CairoOp};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -265,6 +266,7 @@ pub enum Opcode {
     Expect(TypeTag),
     Disp(CairoOp),
     Break,
+    Halt
 }
 
 
@@ -417,6 +419,11 @@ impl Value {
     operator! { bin div {
         (Int(a),   Int(b))   => Int(a / b),
         (Float(a), Float(b)) => Float(a / b)
+    } }
+
+    operator! { bin modulo {
+        (Int(a),   Int(b))   => Int(a % b),
+        (Float(a), Float(b)) => Float(a % b)
     } }
 
     operator! { bin bitand {
@@ -577,10 +584,13 @@ pub struct Program {
 }
 
 
+// The external program representation
 #[derive(Clone, Debug, PartialEq)]
 pub enum Insn where {
     Op(Opcode),
-    Val(Value)
+    Val(Value),
+    BlockBegin(u8),
+    BlockEnd(u8),
 }
 
 
@@ -596,6 +606,12 @@ pub fn decode_word(word: &str) -> Option<Insn> {
     if word.starts_with("#") {
         if let Ok(x) = word[1..].parse::<usize>() {
             Some(Insn::Val(Value::Addr(x)))
+        } else {
+            None
+        }
+    } else if word.starts_with("dup:") {
+        if let Ok(n) = word[4..].parse::<u8>() {
+            Some(Insn::Op(Opcode::Dup(n)))
         } else {
             None
         }
@@ -620,6 +636,11 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "float" => Some(Op(Coerce(TypeTag::Float))),
             "bt" => Some(Op(BranchTrue)),
             "bf" => Some(Op(BranchTrue)),
+            "+" => Some(Op(Binary(BinOp::Add))),
+            "-" => Some(Op(Binary(BinOp::Sub))),
+            "*" => Some(Op(Binary(BinOp::Mul))),
+            "/" => Some(Op(Binary(BinOp::Div))),
+            "%" => Some(Op(Binary(BinOp::Mod))),
             "ba" => Some(Op(Branch)),
             "index" => Some(Op(Index)),
             "." => Some(Op(Dot)),
@@ -630,6 +651,8 @@ pub fn decode_word(word: &str) -> Option<Insn> {
             "stroke" => Some(Op(Disp(Stroke))),
             "paint" => Some(Op(Disp(Paint))),
             "!" => Some(Op(Break)),
+            "[" => Some(BlockBegin(0)),
+            "]" => Some(BlockEnd(0)),
             _ => None
         }
     }
@@ -658,30 +681,104 @@ pub fn load(path: String) -> ParseResult {
 pub type ParseResult = std::result::Result<Program, String>;
 
 
+// For the lowering phase, we still have some meta instructions
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum IntInsn {
+    Op(Opcode),
+    BlockRef(usize)
+}
+
+
+// Lower the externa representation to the internal one.
+//
+// This is not a one-to-one translation, and is more easily expressed
+// using internal mutable state.
 pub fn lower(insns: Vec<Insn>) -> ParseResult
 {
-    let mut code = Vec::new();
+    let mut blocks = Vec::new();
+    // XXX: RefCell truly is un-necessary here, but borrow checker don't care!
+    let block_stack: RefCell<Vec<Vec<IntInsn>>> = RefCell::new(Vec::new());
     let mut values: HashMap<String, usize> = HashMap::new();
-    let mut index: usize = 0;
     let mut data = Vec::new();
+
+    // Append the opcode to the current block
+    let emit = |insn: IntInsn| {
+        // There will not be a block to push into for the top-level block.
+        // This is OK, we already check for underflow in pop_block().
+        if let Some(block) = block_stack.borrow_mut().last_mut() {
+            block.push(insn);
+        }
+    };
+
+    // Begin a nested block, adding it to the stack
+    let push_block = |nargs: u8| {
+        block_stack.borrow_mut().push(Vec::new());
+    };
+
+    // Finish a nested block, return to the outer block
+    let mut pop_block = |nrets: u8| {
+        // first pull the completed block record off the stack.
+        let blk = block_stack.borrow_mut().pop().expect("Mismtached ]");
+
+        // add the block to the block list
+        blocks.push(blk);
+        // The block gets replaced with a reference to itself in the
+        // instruction stream in the enclosing block.
+        emit(IntInsn::BlockRef(blocks.len() - 1));
+    };
+
+    // Push the top-level block.
+    push_block(0);
 
     for i in insns {
         // XXX: Temporary hack to work around the fact that f64
-        // doesn't implement hash apis.
+        // doesn't implement hash apis. Equivalent values should
+        // stringify to the same string.
         let str_repr = format!("{:?}", i);
         match i {
             Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
-                code.push(Opcode::Push(Immediate::Addr(*existing)));
-                code.push(Opcode::Load);
+                emit(IntInsn::Op(Opcode::Push(Immediate::Addr(*existing))));
+                emit(IntInsn::Op(Opcode::Load));
             } else {
+                let index = data.len();
                 values.insert(str_repr, index);
                 data.push(val);
-                code.push(Opcode::Push(Immediate::Addr(index)));
-                code.push(Opcode::Load);
-                index += 1;
+                emit(IntInsn::Op(Opcode::Push(Immediate::Addr(index))));
+                emit(IntInsn::Op(Opcode::Load));
             },
-            Insn::Op(opcode) => code.push(opcode),
+            Insn::Op(opcode) => emit(IntInsn::Op(opcode)),
+            Insn::BlockBegin(nargs) => push_block(nargs),
+            Insn::BlockEnd(nrets) => pop_block(nrets)
         }
+    }
+
+    // Pop the implicit top-level block.
+    // All code is now in the blocks vector.
+    pop_block(0);
+
+    // Replace implicit return from top-level block with halt
+    *blocks.last_mut().unwrap().last_mut().unwrap() = IntInsn::Op(Opcode::Halt);
+
+    // Calculate the address for each block.
+    blocks.reverse();
+    let mut block_addrs = Vec::new();
+    let mut cur_addr = 0;
+    for block in blocks.iter() {
+        block_addrs.push(Opcode::Push(Immediate::Addr(cur_addr)));
+        cur_addr += block.len();
+    }
+
+    // Lower the intermediate instructions down to the internal instructions
+    let code = blocks.iter().cloned().flatten().map(|x| match x {
+        // Opcodes get passed through as-is
+        IntInsn::Op(opcode) => opcode,
+        IntInsn::BlockRef(block_index) => block_addrs[
+            blocks.len() - block_index - 1
+        ]
+    }).collect();
+
+    for i in &code {
+        println!("{:?}", i);
     }
 
     Ok(Program {code, data})
@@ -895,6 +992,7 @@ impl VM where {
             BinOp::Sub  => a.sub(b),
             BinOp::Mul  => a.mul(b),
             BinOp::Div  => a.div(b),
+            BinOp::Mod  => a.modulo(b),
             BinOp::Pow  => a.pow(b),
             BinOp::And  => a.bitand(b),
             BinOp::Or   => a.bitor(b),
@@ -1097,6 +1195,7 @@ impl VM where {
             Opcode::Expect(t)   => self.expect(t),
             Opcode::Disp(ef)    => self.disp(ef, out),
             Opcode::Break       => Err(Error::DebugBreak),
+            Opcode::Halt        => Err(Error::Halt)
         }
     }
 }
@@ -1662,6 +1761,17 @@ mod tests {
                 Push(I::Int(212)),  // A main:
                 Push(I::Addr(0x2)), // B
                 Call(1)             // C ftoc(212)
+            },
+            data: vec! {}
+        });
+
+        assert_evaluates_to(5, 1, Ok(Int(100)), Program {
+            code: vec! {
+                Push(I::Int(100)),
+                Push(I::Addr(4)),
+                Call(0),
+                Halt,
+                Ret(0)
             },
             data: vec! {}
         });
