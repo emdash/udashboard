@@ -80,7 +80,6 @@
 
 
 use crate::ast::{BinOp, UnOp, CairoOp};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -89,68 +88,14 @@ use regex::Regex;
 use std::fs;
 
 
-
-// Immediate values used by push instruction.
-//
-// TODO: tune these for size.  The width of this type essentially
-// deterines the width of the entire opcode. There's a trade-off
-// between having to do extra work to load large constants, and
-// blowing out the intruction cache with larger prorams. I just don't
-// know what the right answer is.
-//
-// We need to be able to load floating point values, and silently
-// truncating floating point literals to 32-bit is bad, since it can
-// change the value. There are ways around this, but let's not worry
-// about them just yet.
-//
-// For future reference, ideas include:
-// - opcodes to alias int / float
-// - some pair of li / lui opcodes that get the job done with reasonable
-//   overhead.
-// - opcodes for directly setting exponent and mantissa, which could be
-//   useful in their own right.
-// - use the data section for floating-point immmediates, which isn't
-//   as bad a waste of space as, say, an 8-bit float.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Immediate {
-    Bool(bool),
-    Int(i16),    // no issues here, integers are exact.
-    Float(f64),  // this is the culprit here, because of rounding.
-    Addr(usize)  // and this, to a lesser degree.
-}
-
-
 // The in-memory opcode format.
 //
 // This is designed to make illegal operations impossible to
 // represent, thereby avoiding "wierd machines" resulting from
 // ill-formed opcodes.
-//
-// The downside is that the actual representation may be very large,
-// especially considering struct padding and alignment. The exact
-// layout is is up to the rust compiler. On the one hand, opcode
-// access itself should be reasonably efficient. On the other hand,
-// the program may not fit well into cache.
-//
-// It's not yet clear how much any of this will matter, because in
-// theory at least, the VM execution overhead is vastly dominated by
-// the cairo rendering pass. Won't know until I get it working and can
-// do some benchmarking.
-//
-// For now, the plan is just to get it working. Even if it takes many
-// bytes to represent an instruction, it could still be vastly more
-// compact than the equivalent text, python, or javascript
-// representation. Decode and dispatch could also be much faster,
-// given that most of this should compile down to jump tables.
-//
-// I would be *very* curious to look at the disassembly.
-//
-// The good news is that doing it this way gives maximum flexibility
-// for future optimization. For now, just getting it working is top
-// priority.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Opcode {
-    Push(Immediate),
+    LoadI(u16),
     Load,
     Get,
     Coerce(TypeTag),
@@ -204,7 +149,9 @@ pub enum TypeTag {
     Addr  = 0b1000000
 }
 
+
 type TypeSet = BitFlags<TypeTag>;
+
 
 // Like core::Into, except that it returns a Result.
 //
@@ -427,20 +374,6 @@ impl_try_into! { Map   => Rc<Env> }
 impl_try_into! { Addr  => usize }
 
 
-// This probably could just be an associated function, rather than a
-// trait.
-impl From<Immediate> for Value {
-    fn from(v: Immediate) -> Value {
-        match v {
-            Immediate::Bool(v)  => Value::Bool(v as bool),
-            Immediate::Int(v)   => Value::Int(v as i64),
-            Immediate::Float(v) => Value::Float(v as f64),
-            Immediate::Addr(v)  => Value::Addr(v as usize)
-        }
-    }
-}
-
-
 impl PartialEq for Value {
     fn eq(&self, rhs: &Self) -> bool {
         match Value::eq(self, rhs) {
@@ -481,12 +414,6 @@ pub type Env = HashMap<String, Value>;
 
 
 // The internal program representation.
-//
-// To avoid embedding string data into the Opcode enum, we instead
-// store an index into a global table of string data.
-//
-// Code is a sequence of instructions.
-// Data is the table of string values.
 #[derive(Clone, Debug)]
 pub struct Program {
     pub code: Vec<Opcode>,
@@ -639,14 +566,14 @@ pub type ParseResult = std::result::Result<Program, String>;
 
 
 // Convert labels to addresses.
-pub fn filter_labels(insns: Vec<Insn>) -> Vec<Opcode> {
+pub fn filter_labels(insns: Vec<Insn>) -> Vec<Insn> {
     let mut with_labels_removed = Vec::new();
     let mut labels = HashMap::new();
     for i in insns {
         match i {
             Insn::Label(name) => {
-                let index = with_labels_removed.len();
-                let op = Opcode::Push(Immediate::Addr(index));
+                let index = with_labels_removed.len() as usize;
+                let op = Insn::Val(Value::Addr(index));
                 labels.insert(name, op);
             },
             insn => with_labels_removed.push(insn)
@@ -659,10 +586,12 @@ pub fn filter_labels(insns: Vec<Insn>) -> Vec<Opcode> {
     for i in with_labels_removed {
         match i {
             Insn::LabelRef(name) => ret.push(
-                labels.get(&name).expect(&("name error: ".to_owned() + &name)).clone()
+                labels
+                    .get(&name)
+                    .expect(&("name error: ".to_owned() + &name))
+                    .clone()
             ),
-            Insn::Op(op) => ret.push(op),
-            _ => panic!("unpossible")
+            insn => ret.push(insn),
         }
     }
 
@@ -670,38 +599,34 @@ pub fn filter_labels(insns: Vec<Insn>) -> Vec<Opcode> {
 }
 
 
-// Lower the externa representation to the internal one.
-//
-// First, immediates are converted to load instructions
-// Then we convert labels to direct addresses.
+// Lower the external representation to the internal one.
 pub fn lower(insns: Vec<Insn>) -> ParseResult
 {
-    let mut values: HashMap<String, usize> = HashMap::new();
+    let mut values: HashMap<String, u16> = HashMap::new();
     let mut data = Vec::new();
     let mut code = Vec::new();
 
-    // Lower Immediate values to load / store instructions.
-    for i in insns {
+    // Convert immediate values to LoadI from a data cell.
+    for i in filter_labels(insns) {
         // XXX: Temporary hack to work around the fact that f64
         // doesn't implement hash apis. Equivalent values should
         // stringify to the same string.
         let str_repr = format!("{:?}", i);
         match i {
             Insn::Val(val) => if let Some(existing) = values.get(&str_repr) {
-                code.push(Insn::Op(Opcode::Push(Immediate::Addr(*existing))));
-                code.push(Insn::Op(Opcode::Load));
+                code.push(Opcode::LoadI(*existing));
             } else {
-                let index = data.len();
+                // XXX: check len < 64k
+                let index = data.len() as u16;
                 values.insert(str_repr, index);
                 data.push(val);
-                code.push(Insn::Op(Opcode::Push(Immediate::Addr(index))));
-                code.push(Insn::Op(Opcode::Load));
+                code.push(Opcode::LoadI(index));
             },
-            insn => code.push(insn)
+            Insn::Op(opcode) => code.push(opcode),
+            Insn::Label(_) => panic!("Labels should have been resolved."),
+            Insn::LabelRef(_) => panic!("Labels should have been resolved.")
         }
     }
-
-    let code = filter_labels(code);
 
     for (i, ii) in code.iter().enumerate() {
         println!("{:?} {:?}", i, ii);
@@ -738,6 +663,7 @@ impl Program {
         }
     }
 }
+
 
 #[derive(Copy, Clone)]
 struct StackFrame {
@@ -888,13 +814,15 @@ impl VM {
     // Load from constant data section.
     pub fn load(&mut self) -> Result<ControlFlow> {
         match self.pop() {
-            Ok(Value::Addr(address)) => {
-                self.push(self.program.load(address)?)?;
-                Ok(ControlFlow::Advance)
-            },
+            Ok(Value::Addr(address)) => self.load_immediate(address),
             Ok(v) => Err(expected(BitFlags::from_flag(TypeTag::Addr), &v)),
             Err(e) => Err(e)
         }
+    }
+
+    pub fn load_immediate(&mut self, addr: usize) -> Result<ControlFlow> {
+        self.push(self.program.load(addr)?)?;
+        Ok(ControlFlow::Advance)
     }
 
     // Return element from the environment map.
@@ -1096,7 +1024,7 @@ impl VM {
         out: &mut impl Output
     ) -> Result<ControlFlow> {
         match op {
-            Opcode::Push(i)     => self.push(i.into()),
+            Opcode::LoadI(addr) => self.load_immediate(addr as usize),
             Opcode::Load        => self.load(),
             Opcode::Get         => self.get(env),
             Opcode::Coerce(t)   => self.coerce(t),
@@ -1136,7 +1064,6 @@ mod tests {
     use super::BinOp::*;
     use super::UnOp::*;
     use super::Value::*;
-    use super::Immediate as I;
     use super::TypeTag as TT;
     use super::Error;
     use super::Rc;
@@ -1267,8 +1194,7 @@ mod tests {
         trace!("test_unary({:?})", op);
         assert_evaluates_to(1, single_op_depth(&expected), expected, Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
+                LoadI(0),
                 Unary(op)
             },
             data: vec! {value}
@@ -1285,10 +1211,8 @@ mod tests {
         trace!("test_binary({:?})", op);
         assert_evaluates_to(2, single_op_depth(&expected), expected, Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(1)),
-                Load,
+                LoadI(0),
+                LoadI(1),
                 Binary(op)
             },
             data: vec! {a, b}
@@ -1299,11 +1223,11 @@ mod tests {
     fn test_simple() {
         let p = Program {
             code: vec! {
-                Push(I::Int(1)),
-                Push(I::Int(2)),
+                LoadI(0),
+                LoadI(1),
                 Binary(Add)
             },
-            data: vec! {}
+            data: vec! {Value::Int(1), Value::Int(2)}
         };
 
         let mut vm = VM::new(p, 2);
@@ -1482,26 +1406,17 @@ mod tests {
     #[test]
     fn test_load() {
         assert_evaluates_to(1, 1, Ok(Int(2)), Program {
-            code: vec! {
-                Push(I::Addr(0)),
-                Load
-            },
-            data: vec! { Int(2) }
+            code: vec! {LoadI(0)},
+            data: vec! {Int(2)}
         });
 
         assert_evaluates_to(1, 0, Err(Error::IllegalAddr(1)), Program {
-            code: vec! {
-                Push(I::Addr(1)),
-                Load
-            },
-            data: vec! { Int(2) }
+            code: vec! {LoadI(1)},
+            data: vec! {Int(2)}
         });
 
         assert_evaluates_to(1, 0, Err(Error::IllegalAddr(0)), Program {
-            code: vec! {
-                Push(I::Addr(0)),
-                Load
-            },
+            code: vec! {LoadI(0)},
             data: vec! {}
         });
     }
@@ -1509,11 +1424,7 @@ mod tests {
     #[test]
     fn test_get() {
         let prog = Program {
-            code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Get,
-            },
+            code: vec! {LoadI(0), Get},
             data: vec! {s("foo")}
         };
 
@@ -1526,11 +1437,7 @@ mod tests {
         assert_eq!(eval(1, 1, prog, env.clone()), Ok(s("bar")));
 
         let prog = Program {
-            code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Get,
-            },
+            code: vec! {LoadI(0), Get},
             data: vec! {s("bar")}
         };
 
@@ -1543,58 +1450,38 @@ mod tests {
     #[test]
     fn test_coerce() {
         assert_evaluates_to(1, 1, Ok(Int(0)), Program {
-            code: vec! {
-                Push(I::Bool(false)),
-                Coerce(TT::Int)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Int)},
+            data: vec! {Value::Bool(false)}
         });
+
         assert_evaluates_to(1, 1, Ok(Int(1)), Program {
-            code: vec! {
-                Push(I::Bool(true)),
-                Coerce(TT::Int)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Int)},
+            data: vec! {Value::Bool(true)}
         });
 
         assert_evaluates_to(1, 1, Ok(Float(1.0)), Program {
-            code: vec! {
-                Push(I::Int(1)),
-                Coerce(TT::Float)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Float)},
+            data: vec! {Value::Int(1)}
         });
 
         assert_evaluates_to(1, 0, tm(TT::Bool, TT::Addr), Program {
-            code: vec! {
-                Push(I::Bool(true)),
-                Coerce(TT::Addr)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Addr)},
+            data: vec! {Value::Bool(true)}
         });
 
         assert_evaluates_to(1, 0, tm(TT::Int, TT::Addr), Program {
-            code: vec! {
-                Push(I::Int(0)),
-                Coerce(TT::Addr)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Addr)},
+            data: vec! {Value::Int(0)}
         });
 
         assert_evaluates_to(1, 0, tm(TT::Float, TT::Addr), Program {
-            code: vec! {
-                Push(I::Float(0.0)),
-                Coerce(TT::Addr)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Addr)},
+            data: vec! {Value::Float(0.0)}
         });
 
         assert_evaluates_to(1, 0, tm(TT::Addr, TT::Addr), Program {
-            code: vec! {
-                Push(I::Addr(3)),
-                Coerce(TT::Addr)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Coerce(TT::Addr)},
+            data: vec! {Value::Addr(3)}
         });
     }
 
@@ -1602,62 +1489,90 @@ mod tests {
     fn test_branch() {
         assert_evaluates_to(3, 1, Ok(Int(105)), Program {
             code: vec! {
-                Push(I::Int(100)),   // 0  [I(100)]
-                Push(I::Bool(true)), // 1  [I(100) B(T)]
-                Push(I::Addr(7)),    // 2  [I(100) B(T) A(7)]
+                LoadI(0),            // 0  [I(100)]
+                LoadI(1),            // 1  [I(100) B(T)]
+                LoadI(2),            // 2  [I(100) B(T) A(7)]
                 BranchTrue,          // 3  [I(100)]
-                Push(I::Int(10)),    // 4  --
-                Push(I::Addr(8)),    // 5  --
+                LoadI(3),            // 4  --
+                LoadI(4),            // 5  --
                 Branch,              // 6  --
-                Push(I::Int(5)),     // 7  [I(100) I(5)]
+                LoadI(5),            // 7  [I(100) I(5)]
                 Binary(Add),         // 8  [I(105)]
             },
-            data: vec! {}
+            data: vec! {
+                Value::Int(100),
+                Value::Bool(true),
+                Value::Addr(7),
+                Value::Int(10),
+                Value::Addr(8),
+                Value::Int(5)
+            }
         });
 
         assert_evaluates_to(3, 1, Ok(Int(110)), Program {
             code: vec! {
-                Push(I::Int(100)),    // 0  [I(100)]
-                Push(I::Bool(false)), // 1  [I(100) B(F)]
-                Push(I::Addr(7)),     // 2  [I(100) B(F) A(7)]
-                BranchTrue,           // 3  [I(100)]
-                Push(I::Int(10)),     // 4  [I(100) I(10)]
-                Push(I::Addr(8)),     // 5  [I(100) I(10) A(10)]
-                Branch,               // 6  [I(100) I(10)
-                Push(I::Int(5)),      // 7  ---
-                Binary(Add),          // 8  [I(110)]
+                LoadI(0),            // 0  [I(100)]
+                LoadI(1),            // 1  [I(100) B(F)]
+                LoadI(2),            // 2  [I(100) B(F) A(7)]
+                BranchTrue,          // 3  [I(100)]
+                LoadI(3),            // 4  [I(100) I(10)]
+                LoadI(4),            // 5  [I(100) I(10) A(8)]
+                Branch,              // 6  --
+                LoadI(5),            // 7  [I(100) I(10)
+                Binary(Add)          // 8  [I(110)]
             },
-            data: vec! {}
+            data: vec! {
+                Value::Int(100),
+                Value::Bool(false),
+                Value::Addr(7),
+                Value::Int(10),
+                Value::Addr(8),
+                Value::Int(5)
+            }
         });
 
         assert_evaluates_to(3, 1, Ok(Int(105)), Program {
             code: vec! {
-                Push(I::Int(100)),    // 0  [I(100)]
-                Push(I::Bool(false)), // 1  [I(100) B(T)]
-                Push(I::Addr(7)),     // 2  [I(100) B(T) A(7)]
-                BranchFalse,          // 3  [I(100)]
-                Push(I::Int(10)),     // 4  --
-                Push(I::Addr(8)),     // 5  --
-                Branch,               // 6  --
-                Push(I::Int(5)),      // 7  [I(100) I(5)]
-                Binary(Add),          // 8  [I(105)]
+                LoadI(0),            // 0  [I(100)]
+                LoadI(1),            // 1  [I(100) B(F)]
+                LoadI(2),            // 2  [I(100) B(F) A(7)]
+                BranchFalse,         // 3  [I(100)]
+                LoadI(3),            // 4  [I(100) I(10)]
+                LoadI(4),            // 5  [I(100) I(10) A(8)]
+                Branch,              // 6  --
+                LoadI(5),            // 7  [I(100) I(10)
+                Binary(Add)          // 8  [I(110)]
             },
-            data: vec! {}
+            data: vec! {
+                Value::Int(100),
+                Value::Bool(false),
+                Value::Addr(7),
+                Value::Int(10),
+                Value::Addr(8),
+                Value::Int(5)
+            }
         });
 
         assert_evaluates_to(3, 1, Ok(Int(110)), Program {
             code: vec! {
-                Push(I::Int(100)),    // 0  [I(100)]
-                Push(I::Bool(true)),  // 1  [I(100) B(F)]
-                Push(I::Addr(7)),     // 2  [I(100) B(F) A(7)]
-                BranchFalse,          // 3  [I(100)]
-                Push(I::Int(10)),     // 4  [I(100) I(10)]
-                Push(I::Addr(8)),     // 5  [I(100) I(10) A(10)]
-                Branch,               // 6  [I(100) I(10)
-                Push(I::Int(5)),      // 7  ---
-                Binary(Add),          // 8  [I(110)]
+                LoadI(0),            // 0  [I(100)]
+                LoadI(1),            // 1  [I(100) B(F)]
+                LoadI(2),            // 2  [I(100) B(F) A(7)]
+                BranchFalse,         // 3  [I(100)]
+                LoadI(3),            // 4  [I(100) I(10)]
+                LoadI(4),            // 5  [I(100) I(10) A(8)]
+                Branch,              // 6  --
+                LoadI(5),            // 7  [I(100) I(10)
+                Binary(Add)          // 8  [I(110)]
             },
-            data: vec! {}
+            data: vec! {
+                Value::Int(100),
+                Value::Bool(true),
+                Value::Addr(7),
+                Value::Int(10),
+                Value::Addr(8),
+                Value::Int(5)
+            }
         });
     }
 
@@ -1668,32 +1583,39 @@ mod tests {
         // ftoc(212)
         assert_evaluates_to(5, 1, Ok(Int(100)), Program {
             code: vec! {
-                Push(I::Addr(0xA)), // 0
+                LoadI(0),           // 0
                 Branch,             // 1 goto main
                 Arg(0),             // 2 ftoc:
-                Push(I::Int(32)),   // 3
+                LoadI(1),           // 3
                 Binary(Sub),        // 4
-                Push(I::Int(5)),    // 5
+                LoadI(2),           // 5
                 Binary(Mul),        // 6
-                Push(I::Int(9)),    // 7
+                LoadI(3),           // 7
                 Binary(Div),        // 8
                 Ret(1),             // 9 return 5 * (n - 32) / 9
-                Push(I::Int(212)),  // A main:
-                Push(I::Addr(0x2)), // B
+                LoadI(4),           // A main:
+                LoadI(5),           // B
                 Call(1)             // C ftoc(212)
             },
-            data: vec! {}
+            data: vec! {
+                Value::Addr(0x0A),
+                Value::Int(32),
+                Value::Int(5),
+                Value::Int(9),
+                Value::Int(212),
+                Value::Addr(0x02)
+            }
         });
 
         assert_evaluates_to(5, 1, Ok(Int(100)), Program {
             code: vec! {
-                Push(I::Int(100)),
-                Push(I::Addr(4)),
+                LoadI(0),
+                LoadI(1),
                 Call(0),
                 Halt,
                 Ret(0)
             },
-            data: vec! {}
+            data: vec! {Value::Int(100), Value::Addr(4)}
         });
     }
 
@@ -1701,28 +1623,35 @@ mod tests {
     fn test_recursion() {
         assert_evaluates_to(25, 1, Ok(Int(120)), Program {
             code: vec! {
-                Push(I::Addr(0x11)), // 00
+                LoadI(0),            // 00
                 Branch,              // 01 goto main
                 Arg(0),              // 02 fact:
-                Push(I::Int(2)),     // 03
+                LoadI(1),            // 03
                 Binary(Lte),         // 04
-                Push(I::Addr(0x09)), // 05
+                LoadI(2),            // 05
                 BranchFalse,         // 06 if n <= 2
                 Arg(0),              // 07
                 Ret(1),              // 08 return n
                 Arg(0),              // 09 else
                 Arg(0),              // 0A
-                Push(I::Int(1)),     // 0B
+                LoadI(3),            // 0B
                 Binary(Sub),         // 0C
-                Push(I::Addr(0x02)), // 0D
+                LoadI(4),            // 0D
                 Call(1),             // 0E
                 Binary(Mul),         // 0F
                 Ret(1),              // 10 return n * fact(n - 1)
-                Push(I::Int(5)),     // 11 main:
-                Push(I::Addr(0x02)), // 12
+                LoadI(5),            // 11 main:
+                LoadI(4),            // 12
                 Call(1)              // 13 fact(5)
             },
-            data: vec! {}
+            data: vec! {
+                Value::Addr(0x11),
+                Value::Int(2),
+                Value::Addr(0x09),
+                Value::Int(1),
+                Value::Addr(0x02),
+                Value::Int(5)
+            }
         });
     }
 
@@ -1730,32 +1659,39 @@ mod tests {
     fn test_binary_recursion() {
         assert_evaluates_to(25, 1, Ok(Int(34)), Program {
             code: vec! {
-                Push(I::Addr(0x15)), // 00
+                LoadI(0),            // 00
                 Branch,              // 01 goto main
                 Arg(0),              // 02 fib:
-                Push(I::Int(1)),     // 03
+                LoadI(1),            // 03
                 Binary(Lte),         // 04
-                Push(I::Addr(0x09)), // 05
+                LoadI(2),            // 05
                 BranchFalse,         // 06 if n <= 1
                 Arg(0),              // 07
                 Ret(1),              // 08 return n
                 Arg(0),              // 09 else
-                Push(I::Int(2)),     // 0A
+                LoadI(3),            // 0A
                 Binary(Sub),         // 0B
-                Push(I::Addr(0x02)), // 0C
+                LoadI(4),            // 0C
                 Call(1),             // 0D  fib(n - 2)
                 Arg(0),              // 0E
-                Push(I::Int(1)),     // 0F
+                LoadI(1),            // 0F
                 Binary(Sub),         // 10
-                Push(I::Addr(0x02)), // 11
+                LoadI(4),            // 11
                 Call(1),             // 12  fib(n - 1)
                 Binary(Add),         // 13
                 Ret(1),              // 14 return fib(n - 2) + fib(n - 1)
-                Push(I::Int(9)),     // 15 main:
-                Push(I::Addr(0x02)), // 16
+                LoadI(5),            // 15 main:
+                LoadI(4),            // 16
                 Call(1)              // 17 fib(9)
             },
-            data: vec! {}
+            data: vec! {
+                Value::Addr(0x15),
+                Value::Int(1),
+                Value::Addr(0x09),
+                Value::Int(2),
+                Value::Addr(0x02),
+                Value::Int(9)
+            }
         });
     }
 
@@ -1763,69 +1699,51 @@ mod tests {
     fn test_drop() {
         assert_evaluates_to(25, 1, Ok(Int(42)), Program {
             code: vec! {
-                Push(I::Int(40)),
-                Push(I::Int(2)),
-                Push(I::Int(100)),
+                LoadI(0),
+                LoadI(1),
+                LoadI(2),
                 Drop(1),
                 Binary(Add)
             },
-            data: vec! {}
+            data: vec! {Value::Int(40), Value::Int(2), Value::Int(100)}
         });
     }
 
     #[test]
     fn test_dup() {
         assert_evaluates_to(25, 1, Ok(Int(42)), Program {
-            code: vec! {
-                Push(I::Int(21)),
-                Dup(1),
-                Binary(Add)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Dup(1), Binary(Add)},
+            data: vec! {Value::Int(21)}
         });
     }
 
     #[test]
     fn test_break() {
         assert_evaluates_to(25, 1, Err(Error::DebugBreak), Program {
-            code: vec! {
-                Push(I::Int(42)),
-                Break
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Break},
+            data: vec! {Value::Int(42)}
         });
     }
 
     #[test]
     fn test_expect() {
         assert_evaluates_to(1, 1, te(!!TT::Bool, TT::Int), Program {
-            code: vec! {
-                Push(I::Int(1)),
-                Expect(TT::Bool)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Expect(TT::Bool)},
+            data: vec! {Value::Int(1)},
         });
 
         assert_evaluates_to(1, 1, te(!!TT::Int, TT::Bool), Program {
-            code: vec! {
-                Push(I::Bool(true)),
-                Expect(TT::Int)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Expect(TT::Int)},
+            data: vec! {Value::Bool(true)}
         });
 
         assert_evaluates_to(1, 1, Ok(Float(3.0)), Program {
-            code: vec! {
-                Push(I::Float(3.0)),
-                Expect(TT::Float)
-            },
-            data: vec! {}
+            code: vec! {LoadI(0), Expect(TT::Float)},
+            data: vec! {Value::Float(3.0)}
         });
 
         assert_evaluates_to(1, 1, Err(Error::Underflow), Program {
-            code: vec! {
-                Expect(TT::Addr)
-            },
+            code: vec! {Expect(TT::Addr)},
             data: vec! {}
         });
     }
@@ -1835,14 +1753,18 @@ mod tests {
         let mut output = Vec::new();
         let prog = Program {
             code: vec! {
-                Push(I::Int(1)),
+                LoadI(0),
                 Disp(CairoOp::Rect),
-                Push(I::Bool(true)),
+                LoadI(1),
                 Disp(CairoOp::Rect),
-                Push(I::Float(1.0)),
+                LoadI(2),
                 Disp(CairoOp::Rect)
             },
-            data: vec! {}
+            data: vec! {
+                Value::Int(1),
+                Value::Bool(true),
+                Value::Float(1.0)
+            }
         };
         let mut vm = VM::new(prog, 1);
         let env = HashMap::new();
@@ -1858,32 +1780,29 @@ mod tests {
     fn test_index() {
         assert_evaluates_to(2, 1, Ok(Int(1)), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(0)),
+                LoadI(0),
+                LoadI(1),
                 Index
             },
-            data: vec! {l(&[Int(1)])}
+            data: vec! {l(&[Int(1)]), Value::Addr(0)}
         });
 
         assert_evaluates_to(2, 1, Err(Error::IndexError(1)), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(1)),
+                LoadI(0),
+                LoadI(1),
                 Index
             },
-            data: vec! {l(&[Int(1)])}
+            data: vec! {l(&[Int(1)]), Value::Addr(1)}
         });
 
         assert_evaluates_to(2, 1, te(!!TT::Addr, TT::Int), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Int(1)),
+                LoadI(0),
+                LoadI(1),
                 Index
             },
-            data: vec! {l(&[Int(1)])}
+            data: vec! {l(&[Int(1)]), Value::Int(0)}
         });
     }
 
@@ -1892,10 +1811,8 @@ mod tests {
     fn test_dot() {
         assert_evaluates_to(2, 1, Ok(Int(1)), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(1)),
-                Load,
+                LoadI(0),
+                LoadI(1),
                 Dot
             },
             data: vec! {m(&[("foo", Int(1))]), s("foo")}
@@ -1904,10 +1821,8 @@ mod tests {
         let key = String::from("bar");
         assert_evaluates_to(2, 1, Err(Error::KeyError(key)), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(1)),
-                Load,
+                LoadI(0),
+                LoadI(1),
                 Dot
             },
             data: vec! {m(&[("foo", Int(1))]), s("bar")}
@@ -1915,12 +1830,11 @@ mod tests {
 
         assert_evaluates_to(2, 1, te(!!TT::Str, TT::Addr), Program {
             code: vec! {
-                Push(I::Addr(0)),
-                Load,
-                Push(I::Addr(1)),
+                LoadI(0),
+                LoadI(1),
                 Dot
             },
-            data: vec! {m(&[("foo", Int(1))])}
+            data: vec! {m(&[("foo", Int(1))]), Value::Addr(0)}
         });
     }
 }
