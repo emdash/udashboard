@@ -2,98 +2,50 @@
 //
 // A virtual machine for a custom Elm-inspired graphics system.
 //
-// This system is optimized for short-running programs that get
-// executed repeatedly on data that changes at "interactive"
-// frequencies of 10-60hz. In other words, it's a language for
-// animation, UI, and real-time display. It's assumed that both the
-// code, and the data being processed, could be malicious. And it's
-// assumed that it's running on low-end hardware, so a great deal of
-// attention has been paid to space efficiency, low overhead, and
-// memory safety.
+// This system is optimized for short-running kernels that render a
+// single frame of video.
 //
-// The capabilities of the instruction set are carefully designed to
-// place restrictions on the runtime behavior of the system in order
-// to guarantee determinism and place a reasonable upper bound on
-// memory requirements. As an added bonus, it should be cache
-// efficient. In particular, all mutable state must live on a stack
-// with a fixed upper size limit; and, while side effects are allowed,
-// they can only have an external influence, and do not affect the
-// behavior of subsequent instructions -- provided that embedding
-// applications respect certain rules discussed below.
+// The ISA intentionally limits the runtime behavior of the system,
+// with the goal of improving both security and performance as
+// compared with existing alternatives.
 //
-// Conceptually, a program is a sequence of stack operations evaluated
-// within a read-only "environment", producing sequence of opaque
-// "effects" as output. For a given progaram and environment, the
-// sequence of effects is completely deterministic, though not
-// necessarily valid.
+// *Execution Model*
 //
-// There are different ways to frame this conceptually:
-// - as a compression scheme, which can be expanded to yield a
-//   sequence of values.
-// - as a signal processing system, which transforms arbitray inputs
-//   to arbitray outputs in constant space and deterministic time.
-// - as a runtime for either a functional *or* proceedural language.
-// - as a family of DFAs.
+// A program consists of a sequence of instructions and an immutable
+// data section. Almost all instructions mutate or inspect the stack,
+// except for the Disp instruction, may not depending on the sub-operation.
+//
+// Execution is done with respect to an external environment, which is
+// a key-value map.
 //
 // *Validity*
 //
 // The set of runtime errors is represented by the Error enum in this
 // file. All are non-recoverable, modulo an external debugger.
 //
-// For our purposes here, a valid program is one which terminates
-// without an error, for a given stack limit and environment. A
-// well-behaved program is one that can be proven valid for a given
-// stack limit and environment "shape".
-//
-// I believe it will be possible to quantify space requirements for a
-// given program automatically, through an efficient analysis of the
-// instruction sequence. It may also be possible quantify time
-// requirements in a similar way. This would put reasonable limits on
-// the kind of chaos that might otherwise ensue from executing
-// arbitrary code from untrusted sources.
+// A valid program is one which terminates with Error::Halt.
 //
 // *Safety*
 //
-// Safety is naturally implementation-dependent. Much of the
-// guarantees here depend on run-time error detection which, in the
-// age of spectre, is not reliable. Moreover, it is up to the
-// embedding code not to provide the VM with fundamentally unsafe
-// capabilities via the Effects mechanism.
-//
-// The goal here is simply to not exacerbate the problem with an
-// instruction set that is fundamentally inscrutable, and full of
-// implementation quirks, AKA "weird machines" that have proven to be
-// fertile ground for vulnerabilities to fester.
-//
-// Crucially, the embedding application has the responsibility to
-// uphold the following contract: *it must not allow effects to write
-// back to the environment during program execution*!  This is
-// crucial!  The API is designed to prevent this from happening by
-// accident, but I can't stop you form using "unsafe", "RefCell" or
-// other hacks to defeat this intentional restriction. You have been
-// warned.
+// The main goal is to avoid accidental "weird machines". The
+// instruction-set is strongly-typed. Types and other bounds are
+// checked at run-time.
 //
 // *Instructions*
 //
 // The core instruction set is broadly similar to other
-// stack-machines. The usual family of arithmetic, logic, and stack
-// manipulation operators are providd.
+// stack-machines. The usual family of arithmetic, logic, relational,
+// and stack manipulation operators are present.
 //
-// Subroutines are supported with the "call", "ret", and "rel"
+// Subroutines are supported with the "call", "ret", and "arg"
 // instructions. "call" and "ret" handle the return address and stack
-// frame, while "rel" allows stable indexing of function
-// parameters. This greatly simplifies compilation of high-level code,
-// while keeping *all* operands on the stack.
+// frame, while "arg" allows stable indexing of function
+// parameters.
 //
-// Control flow is provided by "bt", "bf", and "jmp" instructions,
-// which take *addresses* rather than abstract "blocks" as you see in
-// fourth. This is for the sake of efficiency. I don't like the
-// overhead that blocks require, seems wasted with an in-memory
-// representation. This is a low level ISA intended to serve as a
-// target for a higher-level language. I could be convinced
-// otherwise. But the way I see it, you have to do some form of linear
-// scan over the bytecode at load time, and it's easy enough to
-// calculate addresses during that phase.
+// Control flow is provided by "bt", "bf", and "ba" instructions,
+// which take an address as branch taret. Addresses are _logical_,
+// i.e. they are an index into the instruction stream, rather than a
+// byte address.
 //
 // *Values*
 //
@@ -102,29 +54,12 @@
 // Arithmetic is allowed only on int and float types. There is no
 // silent coercion.
 //
-// String, list, and map types are immutable, and static for the
-// duration of the VM program.
+// String, list, and map types are immutable.
 //
-// String subsetting is supported, but not string construction. If you
-// want to concatenate or format strings, you must do it externally,
-// via the effect mechanism. If you want to display values for debug,
-// pack them into an Effect and `disp` the effect.
+// List and map types suport indexing and iteration.
 //
-// List and map types suport "get" and "iter" instructions. For list
-// types, "iter" is guaranteed to traverse in order. For map types,
-// it's not. Calling "get" on a list requires an integer key, while
-// calling "get" on a map requries a string key.
-//
-// Addrs are an unsigned index type, used with fetch
-// instructions. These are *logical* indices, not raw pointers. While
-// the Addr is used in a variety of contexts, it's important to
-// understand that by design there are separate address spaces for
-// instructions, static data, the environment, and the stack. In
-// addition, no opcodes support calculations on addresses at
-// runtime. I may relax this restriction slightly, for the sake of
-// being able to support jump tables. If I do, it will take the form
-// of an 8-bit immediate operand on the Jmp instruction. I need to be
-// convinced it's relatively safe to allow this.
+// The Addr type can only be used with branch instructions, and
+// operations on addresses are not supported.
 //
 // *The Stack*
 //
@@ -141,39 +76,7 @@
 //
 // *Effects*
 //
-// An Effects is an extensible symbolic representation of the external
-// behavior the VM is controlling. You can think of values as
-// "flowing" through the program from a "source" to a "drain". A
-// source may be the environment, value from static data, or an
-// immediate operand. A "drain" is either "drop", or "disp"
-// instruction.
-//
-// While "drop" and "disp" work on arbitrary values, but "drop"
-// behaves specially when the value is an "effect object". You
-// construct an effect on the stack with the "effect" instruction,
-// which takes an opaque "tag" broadly classifying the effect. You can
-// then append VM values into it with the "pack" instruction.
-//
-// "pack" takes an effect, and a single VM value. It moves the value
-// from the stack into the effect, leaving the effect on stack. This
-// allows you to incrementally build arbitray structure
-// incrementally. Finally, you "drop" the effect, and it will be
-// handed off to the application code into which the VM is embedded.
-//
-// This means that, like most opcodes, pack and drop can fail. This
-// can happen if the effect is rejected by the client, you attempt to
-// pack an illegal value into an effect, or if you exceed the an
-// arbirary maximum effect limit. All of these things are under the
-// control of the embedding application, *not* the VM program.
-//
-// *Summary*
-//
-// - Designed to be repeatedly executed at interactive frequencies.
-// - Runs in constant space, with a stack limit set by user at runtime.
-// - Stack-based, postfix order.
-// - Designed for safety and speed.
-// - The eventual goal is to be panic-free. Will need tooling to
-//   verify this.
+// The CairoOp type represents the set of valid canvas operations.
 
 
 use crate::ast::{BinOp, UnOp, CairoOp};
