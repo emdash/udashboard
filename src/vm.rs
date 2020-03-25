@@ -705,10 +705,6 @@ pub trait Output {
 // TODO: Implement in-place stack mutation, and benchmark to see if it
 // offers any improvement.
 //
-// TODO: Implement remaining opcodes.
-//
-// TODO: Effects.
-//
 // TODO: Trap mechanism for non-fatal errors. Default to fatal if no
 // handler registered.
 //
