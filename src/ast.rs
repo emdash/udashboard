@@ -108,6 +108,24 @@ pub fn id(name: &'static str) -> Expr {
 }
 
 
+pub fn call(func: Expr, args: Vec<Expr>) -> Expr {
+    Expr::Call(
+        Node::new(func),
+        args.into_iter().map(|e| Node::new(e)).collect()
+    )
+}
+
+
+pub fn dot(obj: Expr, id: &str) -> Expr {
+    Expr::Dot(Node::new(obj), String::from(id))
+}
+
+
+pub fn index(obj: Expr, e: Expr) -> Expr {
+    Expr::Index(Node::new(obj), Node::new(e))
+}
+
+
 // ADT for effects and structure
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {

@@ -3,10 +3,24 @@
 // https://github.com/vpzomtrrfrt/amath/blob/master/src/grammar.lalrpop
 
 use crate::ast;
-
 use std::str::FromStr;
 
 grammar;
+
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+}
+
+
+ExprList = Comma<Expr>;
 
 
 pub Expr: ast::Expr = {
@@ -43,8 +57,22 @@ Factor: ast::Expr = {
 
 InvTerm: ast::Expr = {
     "-" <a:InvTerm> => ast::un(ast::UnOp::Neg, a),
-    Term
+    "not" <a:InvTerm> => ast::un(ast::UnOp::Not, a),
+    Call
 };
+
+
+Call: ast::Expr = {
+    <func:Call> "(" <args:ExprList> ")" => ast::call(func, args),
+    Selection
+}
+
+
+Selection: ast::Expr = {
+    <obj:Selection> "." <id:Id> => ast::dot(obj, id.as_str()),
+    <obj:Selection> "[" <e:Expr> "]" => ast::index(obj, e),
+    Term
+}
 
 
 Term: ast::Expr = {
@@ -52,7 +80,7 @@ Term: ast::Expr = {
     Int => ast::Expr::Int(<>),
     Float => ast::Expr::Float(<>),
     Boolean => ast::Expr::Bool(<>),
-    "(" <a:Expr> ")" => a
+    "(" <a:Expr> ")" => a,
 };
 
 
