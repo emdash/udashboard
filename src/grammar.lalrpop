@@ -8,12 +8,21 @@ use std::str::FromStr;
 
 grammar;
 
+
 pub Expr: ast::Expr = {
-    <a:Expr> "<"  <b:Sum> => ast::bin(ast::BinOp::Lt, a, b),
-    <a:Expr> ">"  <b:Sum> => ast::bin(ast::BinOp::Gt, a, b),
-    <a:Expr> "<=" <b:Sum> => ast::bin(ast::BinOp::Lte, a, b),
-    <a:Expr> ">=" <b:Sum> => ast::bin(ast::BinOp::Gte, a, b),
-    <a:Expr> "==" <b:Sum> => ast::bin(ast::BinOp::Eq, a, b),
+    <a:Expr> "and" <b:Rel> => ast::bin(ast::BinOp::And, a, b),
+    <a:Expr> "or"  <b:Rel> => ast::bin(ast::BinOp::Or, a, b),
+    <a:Expr> "xor" <b:Rel> => ast::bin(ast::BinOp::Xor, a, b),
+    Rel
+}
+
+
+Rel: ast::Expr = {
+    <a:Rel> "<"  <b:Sum> => ast::bin(ast::BinOp::Lt, a, b),
+    <a:Rel> ">"  <b:Sum> => ast::bin(ast::BinOp::Gt, a, b),
+    <a:Rel> "<=" <b:Sum> => ast::bin(ast::BinOp::Lte, a, b),
+    <a:Rel> ">=" <b:Sum> => ast::bin(ast::BinOp::Gte, a, b),
+    <a:Rel> "==" <b:Sum> => ast::bin(ast::BinOp::Eq, a, b),
     Sum
 };
 
