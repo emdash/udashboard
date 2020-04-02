@@ -21,8 +21,9 @@ mod tests {
             Int(3),
             bin(Mul, Int(4), Int(5))
         ));
-        assert_parses_to("a + 3", bin(Add, Id(String::from("a")), Int(3)));
+        assert_parses_to("a + 3", bin(Add, Id(s("a")), Int(3)));
         assert_parses_to("3 * a", bin(Mul, Int(3), id("a")));
+        assert_parses_to("\"foo\"", string("foo"));
     }
 
     #[test]
