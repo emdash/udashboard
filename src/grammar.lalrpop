@@ -28,16 +28,22 @@ Sum: ast::Expr = {
 Factor: ast::Expr = {
     <a:Factor> "*" <b:Term> => ast::bin(ast::BinOp::Mul, a, b),
     <a:Factor> "/" <b:Term> => ast::bin(ast::BinOp::Div, a, b),
+    InvTerm
+};
+
+
+InvTerm: ast::Expr = {
+    "-" <a:InvTerm> => ast::un(ast::UnOp::Neg, a),
     Term
 };
 
 
 Term: ast::Expr = {
+    Id => ast::Expr::Id(<>),
     Int => ast::Expr::Int(<>),
     Float => ast::Expr::Float(<>),
     Boolean => ast::Expr::Bool(<>),
-    "(" <a:Expr> ")" => a,
-    Id => ast::Expr::Id(<>)
+    "(" <a:Expr> ")" => a
 };
 
 
