@@ -5,6 +5,7 @@ mod tests {
     use crate::ast::*;
     use Expr::*;
     use ast::BinOp::*;
+    use ast::UnOp::*;
 
     fn assert_parses_to(text: &'static str, ast: Expr) {
         assert_eq!(
@@ -30,6 +31,12 @@ mod tests {
         assert_parses_to("42.0", Float(42.0));
         assert_parses_to("(42)", Int(42));
         assert_parses_to("foo", id("foo"));
+        assert_parses_to("-42", Int(-42));
+        assert_parses_to("-42.0", Float(-42.0));
+        assert_parses_to("-x", un(Neg, id("x")));
+        assert_parses_to("- 42", un(Neg, Int(42)));
+        assert_parses_to("- 42.0", un(Neg, Float(42.0)));
+        assert_parses_to("-(42)", un(Neg, Int(42)));
     }
 
     #[test]
@@ -96,6 +103,81 @@ mod tests {
                 bin(And,
                     bin(Gt, id("x"), Int(4)),
                     bin(Gt, id("x"), Int(5)))));
+    }
+
+    #[test]
+    fn test_call() {
+        assert_parses_to(
+            "foo(a + 3, a and b)",
+            call(
+                id("foo"),
+                vec! { bin(Add, id("a"), Int(3)), bin(And, id("a"), id("b")) }
+            )
+        );
+
+        assert_parses_to(
+            "x(a or b, y <= 3, y(-g(a * 7)))",
+            call(
+                id("x"),
+                vec! {
+                    bin(Or, id("a"), id("b")),
+                    bin(Lte, id("y"), Int(3)),
+                    call(
+                        id("y"),
+                        vec!{
+                            un(
+                                Neg,
+                                call(
+                                    id("g"),
+                                    vec!{ bin(Mul, id("a"), Int(7)) }
+                                )
+                            )
+                        }
+                    )
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn test_dot() {
+        assert_parses_to(
+            "foo.bar",
+            dot(id("foo"), "bar")
+        );
+
+        assert_parses_to(
+            "foo.bar.baz",
+            dot(dot(id("foo"), "bar"), "baz")
+        );
+
+        assert_parses_to(
+            "foo.bar()",
+            call(dot(id("foo"), "bar"), vec! {})
+        );
+    }
+
+    #[test]
+    fn test_index() {
+        assert_parses_to(
+            "foo[0]",
+            index(id("foo"), Int(0))
+        );
+
+        assert_parses_to(
+            "foo[bar]",
+            index(id("foo"), id("bar"))
+        );
+
+        assert_parses_to(
+            "foo[3 + 10 * 5]",
+            index(id("foo"), bin(Add, Int(3), bin(Mul, Int(10), Int(5))))
+        );
+
+        assert_parses_to(
+            "foo[3][4]",
+            index(index(id("foo"), Int(3)), Int(4))
+        );
     }
 }
 
