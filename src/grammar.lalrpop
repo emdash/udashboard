@@ -1,13 +1,16 @@
-// Grammar is adapted from that found in the `amath` crate:
+// LALRPOP grammar for the VM front-end.
 //
+// Adapted from that found in the `amath` crate, with heavy additions.
 // https://github.com/vpzomtrrfrt/amath/blob/master/src/grammar.lalrpop
 
 use crate::ast;
 use std::str::FromStr;
 
+
 grammar;
 
 
+// Factor out comma-separated lists of things.
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
         None => v,
@@ -20,15 +23,25 @@ Comma<T>: Vec<T> = {
 }
 
 
+// A single item in a map.
 MapItem: (String, ast::Expr) = {
     <k:Str> ":" <v:Expr> => (k, v)
 }
 
 
+// Used in list literals and function call arguments.
 ExprList = Comma<Expr>;
+
+
+// So far only used in maps.
 MapItems = Comma<MapItem>;
 
 
+// Top-level expression rule.
+//
+// This will always be the lowest-precedence group of operators Right
+// now, this is the logic operators. This way sloppily-parenthesized
+// should do the least surprising thing.
 pub Expr: ast::Expr = {
     <a:Expr> "and" <b:Rel> => ast::bin(ast::BinOp::And, a, b),
     <a:Expr> "or"  <b:Rel> => ast::bin(ast::BinOp::Or, a, b),
@@ -37,6 +50,7 @@ pub Expr: ast::Expr = {
 }
 
 
+// Relational operators are the next highest precedence.
 Rel: ast::Expr = {
     <a:Rel> "<"  <b:Sum> => ast::bin(ast::BinOp::Lt, a, b),
     <a:Rel> ">"  <b:Sum> => ast::bin(ast::BinOp::Gt, a, b),
@@ -47,6 +61,7 @@ Rel: ast::Expr = {
 };
 
 
+// Lowest precedence arithmetic operator.
 Sum: ast::Expr = {
     <a:Sum> "+" <b:Factor> => ast::bin(ast::BinOp::Add, a, b),
     <a:Sum> "-" <b:Factor> => ast::bin(ast::BinOp::Sub, a, b),
@@ -67,6 +82,10 @@ Exp: ast::Expr = {
 }
 
 
+// We want these unary operators applied to a function call to do the
+// right thing. I.e. -foo() should parse as (- (foo)), not ((- foo)).
+//
+// The same thing applies to logical negation.
 InvTerm: ast::Expr = {
     "-" <a:InvTerm> => ast::un(ast::UnOp::Neg, a),
     "not" <a:InvTerm> => ast::un(ast::UnOp::Not, a),
@@ -74,12 +93,19 @@ InvTerm: ast::Expr = {
 };
 
 
+// We want indexing and selection to bind before function calls, so that
+// foo.bar(a) parses as ((dot foo bar) a), not (dot foo (bar a))
 Call: ast::Expr = {
     <func:Call> "(" <args:ExprList> ")" => ast::call(func, args),
     Selection
 }
 
 
+// Ideally, we'd allow arbitrary expression on the left hand side, but
+// this results in ambiguity that LALRPOP can't handle.
+//
+// That means extra parenthesis are required to index or select on the
+// result of an expression.
 Selection: ast::Expr = {
     <obj:Selection> "." <id:Id> => ast::dot(obj, id.as_str()),
     <obj:Selection> "[" <e:Expr> "]" => ast::index(obj, e),
@@ -95,7 +121,7 @@ Term: ast::Expr = {
     Boolean => ast::Expr::Bool(<>),
     "(" <a:Expr> ")" => a,
     "[" <l:ExprList> "]" => ast::list(l),
-    "{" <m:MapItems> "}" => ast::map(m)
+    "{" <m:MapItems> "}" => ast::map(m),
 };
 
 

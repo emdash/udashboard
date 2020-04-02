@@ -208,5 +208,36 @@ mod tests {
             "foo[3][4]",
             index(index(id("foo"), Int(3)), Int(4))
         );
+
+        assert_parses_to(
+            "foo[3].bar.baz[5][6]",
+            index(
+                index(
+                    dot(
+                        dot(
+                            index(id("foo"), Int(3)),
+                            "bar"
+                        ),
+                        "baz"
+                    ),
+                    Int(5)
+                ),
+                Int(6)
+            )
+        );
+
+        // XXX: allow parsing foo()[3] identically. For now, language
+        // won't support returning function values, only passing them,
+        // so this is okay.
+        assert_parses_to(
+            "(foo())[3]",
+            index(call(id("foo"), vec!{}), Int(3))
+        );
+
+        // XXX: see above.
+        assert_parses_to(
+            "(foo()).bar",
+            dot(call(id("foo"), vec!{}), "bar")
+        );
     }
 }
