@@ -79,6 +79,7 @@ Term: ast::Expr = {
     Id => ast::Expr::Id(<>),
     Int => ast::Expr::Int(<>),
     Float => ast::Expr::Float(<>),
+    Str => ast::Expr::Str(<>),
     Boolean => ast::Expr::Bool(<>),
     "(" <a:Expr> ")" => a,
 };
@@ -88,3 +89,4 @@ Int: i64 = r"-?[0-9]+" => i64::from_str(<>).unwrap();
 Float: f64 = r"-?[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap();
 Id: String = r"[A-Za-z_][A-Za-z0-9_]*" => <>.to_owned();
 Boolean: bool = {"true" => true, "false" => false};
+Str: String = <s:r#""(([^\\"]|\\.)*)""#> => s[1..(s.len() - 1)].to_string();

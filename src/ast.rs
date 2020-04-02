@@ -93,6 +93,14 @@ pub enum Expr {
 }
 
 
+pub fn s(s: &str) -> String {
+    String::from(s)
+}
+
+
+pub fn string(st: &str) -> Expr {
+    Expr::Str(s(st))
+}
 pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     Expr::BinOp(op, Node::new(lhs), Node::new(rhs))
 }
