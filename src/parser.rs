@@ -24,6 +24,35 @@ mod tests {
         assert_parses_to("a + 3", bin(Add, Id(s("a")), Int(3)));
         assert_parses_to("3 * a", bin(Mul, Int(3), id("a")));
         assert_parses_to("\"foo\"", string("foo"));
+
+    }
+
+    #[test]
+    fn test_list() {
+        assert_parses_to("[]", list(vec!{}));
+        assert_parses_to("[3]", list(vec!{Int(3)}));
+        assert_parses_to("[3, 4, 5]", list(vec!{Int(3), Int(4), Int(5)}));
+        assert_parses_to(
+            "[3 + 4, 5]",
+            list(vec!{bin(Add, Int(3), Int(4)), Int(5)})
+        );
+    }
+
+    #[test]
+    fn test_map() {
+        assert_parses_to("{}", map(vec!{}));
+        assert_parses_to(
+            r#"{"foo": 1}"#,
+            map(vec!{(s("foo"), Int(1))})
+        );
+
+        assert_parses_to(
+            r#"{"foo": 1, "bar": 2}"#,
+            map(vec!{
+                (s("foo"), Int(1)),
+                (s("bar"), Int(2))
+            })
+        );
     }
 
     #[test]
@@ -181,4 +210,3 @@ mod tests {
         );
     }
 }
-
