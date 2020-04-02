@@ -93,6 +93,17 @@ pub enum Expr {
 }
 
 
+pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::BinOp(op, Node::new(lhs), Node::new(rhs))
+}
+
+
+pub fn un(op: UnOp, operand: Expr) -> Expr {
+    Expr::UnOp(op, Node::new(operand))
+}
+
+
+
 // ADT for effects and structure
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {

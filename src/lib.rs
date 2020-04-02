@@ -23,6 +23,9 @@ extern crate ron;
 extern crate serde;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate lalrpop_util;
+
 
 
 pub mod ast;
@@ -31,6 +34,8 @@ pub mod config;
 pub mod data;
 pub mod env;
 pub mod drm;
+lalrpop_mod!(pub grammar);
+pub mod parser;
 pub mod windowed;
 pub mod render;
 pub mod typechecker;

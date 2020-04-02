@@ -1,0 +1,50 @@
+// Grammar is adapted from that found in the `amath` crate:
+//
+// https://github.com/vpzomtrrfrt/amath/blob/master/src/grammar.lalrpop
+
+use crate::ast;
+
+use std::str::FromStr;
+
+grammar;
+
+pub Expr: ast::Expr = {
+    <a:Expr> "<"  <b:Sum> => ast::bin(ast::BinOp::Lt, a, b),
+    <a:Expr> ">"  <b:Sum> => ast::bin(ast::BinOp::Gt, a, b),
+    <a:Expr> "<=" <b:Sum> => ast::bin(ast::BinOp::Lte, a, b),
+    <a:Expr> ">=" <b:Sum> => ast::bin(ast::BinOp::Gte, a, b),
+    <a:Expr> "==" <b:Sum> => ast::bin(ast::BinOp::Eq, a, b),
+    Sum
+};
+
+
+Sum: ast::Expr = {
+    <a:Sum> "+" <b:Factor> => ast::bin(ast::BinOp::Add, a, b),
+    <a:Sum> "-" <b:Factor> => ast::bin(ast::BinOp::Sub, a, b),
+    Factor,
+};
+
+
+Factor: ast::Expr = {
+    <a:Factor> "*" <b:Term> => ast::bin(ast::BinOp::Mul, a, b),
+    <a:Factor> "/" <b:Term> => ast::bin(ast::BinOp::Div, a, b),
+    Term
+};
+
+
+Term: ast::Expr = {
+    Int => ast::Expr::Int(<>),
+    Float => ast::Expr::Float(<>),
+    Boolean => ast::Expr::Bool(<>),
+    "(" <a:Expr> ")" => a,
+    Id => ast::Expr::Id(<>)
+};
+
+
+Int: i64 = r"[0-9]+" => i64::from_str(<>).unwrap();
+Float: f64 = r"[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap();
+Id: String = r"[A-Za-z][A-Za-z0-9_]+" => <>.to_owned();
+Boolean: bool = {
+    "true" => true,
+    "false" => false
+};
