@@ -103,6 +103,10 @@ pub fn un(op: UnOp, operand: Expr) -> Expr {
 }
 
 
+pub fn id(name: &'static str) -> Expr {
+    Expr::Id(String::from(name))
+}
+
 
 // ADT for effects and structure
 #[derive(Clone, Debug, PartialEq)]
