@@ -20,7 +20,13 @@ Comma<T>: Vec<T> = {
 }
 
 
+MapItem: (String, ast::Expr) = {
+    <k:Str> ":" <v:Expr> => (k, v)
+}
+
+
 ExprList = Comma<Expr>;
+MapItems = Comma<MapItem>;
 
 
 pub Expr: ast::Expr = {
@@ -51,8 +57,14 @@ Sum: ast::Expr = {
 Factor: ast::Expr = {
     <a:Factor> "*" <b:Term> => ast::bin(ast::BinOp::Mul, a, b),
     <a:Factor> "/" <b:Term> => ast::bin(ast::BinOp::Div, a, b),
-    InvTerm
+    Exp
 };
+
+
+Exp: ast::Expr = {
+    <base:Exp> "^" <exp: InvTerm> => ast::bin(ast::BinOp::Pow, base, exp),
+    InvTerm
+}
 
 
 InvTerm: ast::Expr = {
@@ -82,6 +94,8 @@ Term: ast::Expr = {
     Str => ast::Expr::Str(<>),
     Boolean => ast::Expr::Bool(<>),
     "(" <a:Expr> ")" => a,
+    "[" <l:ExprList> "]" => ast::list(l),
+    "{" <m:MapItems> "}" => ast::map(m)
 };
 
 

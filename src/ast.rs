@@ -101,6 +101,18 @@ pub fn s(s: &str) -> String {
 pub fn string(st: &str) -> Expr {
     Expr::Str(s(st))
 }
+
+
+pub fn list(items: Vec<Expr>) -> Expr {
+    Expr::List(items.into_iter().map(|e| Node::new(e)).collect())
+}
+
+
+pub fn map(items: Vec<(String, Expr)>) -> Expr {
+    Expr::Map(items.into_iter().map(|i| (i.0, Node::new(i.1))).collect())
+}
+
+
 pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     Expr::BinOp(op, Node::new(lhs), Node::new(rhs))
 }
