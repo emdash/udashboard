@@ -93,6 +93,21 @@ pub enum Expr {
 }
 
 
+pub fn to_seq<T>(items: Vec<T>) -> Seq<T> {
+    items.into_iter().map(|e| Node::new(e)).collect()
+}
+
+
+pub fn to_map<T>(items: Vec<(String, T)>) -> Map<T> {
+    items.into_iter().map(|i| (i.0, Node::new(i.1))).collect()
+}
+
+
+pub fn map_to_seq<T>(items: &Map<T>) -> Seq<T> {
+    items.iter().map(|i| i.1.clone()).collect()
+}
+
+
 pub fn s(s: &str) -> String {
     String::from(s)
 }
@@ -104,12 +119,12 @@ pub fn string(st: &str) -> Expr {
 
 
 pub fn list(items: Vec<Expr>) -> Expr {
-    Expr::List(items.into_iter().map(|e| Node::new(e)).collect())
+    Expr::List(to_seq(items))
 }
 
 
 pub fn map(items: Vec<(String, Expr)>) -> Expr {
-    Expr::Map(items.into_iter().map(|i| (i.0, Node::new(i.1))).collect())
+    Expr::Map(to_map(items))
 }
 
 
@@ -129,10 +144,7 @@ pub fn id(name: &'static str) -> Expr {
 
 
 pub fn call(func: Expr, args: Vec<Expr>) -> Expr {
-    Expr::Call(
-        Node::new(func),
-        args.into_iter().map(|e| Node::new(e)).collect()
-    )
+    Expr::Call(Node::new(func), to_seq(args))
 }
 
 
@@ -146,13 +158,73 @@ pub fn index(obj: Expr, e: Expr) -> Expr {
 }
 
 
+pub fn expr_block(stmts: Vec<Statement>, e: Option<Expr>) -> Expr {
+    Expr::Block(to_seq(stmts), Node::new(e.unwrap_or(Expr::Unit)))
+}
+
+
 // ADT for effects and structure
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
+    Block(Seq<Statement>),
     Emit(String, Seq<Expr>),
     Def(String, Node<Expr>),
-    For(Node<Expr>, Node<Expr>),
-    While(Node<Expr>, Node<Expr>),
+    ListIter(String, Node<Expr>, Node<Statement>),
+    MapIter(String, String, Node<Expr>, Node<Statement>),
+    While(Node<Expr>, Node<Statement>),
+    Guard(Seq<(Expr, Statement)>, Option<Node<Statement>>),
+}
+
+
+pub fn statement_block(statements: Vec<Statement>) -> Statement {
+    Statement::Block(to_seq(statements))
+}
+
+
+pub fn emit(name: &str, exprs: Vec<Expr>) -> Statement {
+    Statement::Emit(String::from(name), to_seq(exprs))
+}
+
+
+pub fn def(name: &str, expr: Expr) -> Statement {
+    Statement::Def(String::from(name), Node::new(expr))
+}
+
+
+pub fn list_iter(name: &str, list: Expr, body: Statement) -> Statement {
+    Statement::ListIter(
+        String::from(name),
+        Node::new(list),
+        Node::new(body)
+    )
+}
+
+
+pub fn map_iter(
+    key: &str,
+    value: &str,
+    map: Expr,
+    body: Statement
+) -> Statement {
+    Statement::MapIter(
+        String::from(key),
+        String::from(value),
+        Node::new(map),
+        Node::new(body)
+    )
+}
+
+
+pub fn while_(cond: Expr, body: Statement) -> Statement {
+    Statement::While(Node::new(cond), Node::new(body))
+}
+
+
+pub fn guard(
+    clauses: Vec<(Expr, Statement)>,
+    default: Option<Statement>
+) -> Statement {
+    Statement::Guard(to_seq(clauses), default.map(|x| Node::new(x)))
 }
 
 

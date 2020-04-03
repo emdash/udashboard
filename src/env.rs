@@ -38,6 +38,7 @@ impl<T> Env<T> where T: Clone + Debug {
 
     // Insert a value in the current scope.
     pub fn define(&self, key: &String, value: &Node<T>) {
+        // TODO: handle redefinition.
         self.scope.borrow_mut().insert(key.clone(), value.clone());
     }
 

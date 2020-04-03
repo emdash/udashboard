@@ -236,15 +236,26 @@ impl TypeChecker {
         )))
     }
 
-    pub fn check_iterable(&self, expr: &Node<Expr>) -> TypeCheck {
+    // Check whether expr is a list, and return the item type.
+    pub fn is_list(&self, expr: &Node<Expr>) -> TypeExpr {
         let result = self.eval_expr(expr)?;
         match result.deref() {
-            TypeTag::List(_) => Ok(()),
+            TypeTag::List(item_type) => Ok(item_type.clone()),
             _ => Err(NotIterable(result))
         }
     }
 
-    pub fn check_bool(&self, expr: &Node<Expr>) -> TypeCheck {
+    // Check whether expr is a map, return the union over all the value types.
+    pub fn is_map(&self, expr: &Node<Expr>) -> TypeExpr {
+        let result = self.eval_expr(expr)?;
+        match result.deref() {
+            TypeTag::Map(items) => Ok(Self::narrow(map_to_seq(items))),
+            _ => Err(NotIterable(result))
+        }
+    }
+
+    // Check whether expr is a bool.
+    pub fn is_bool(&self, expr: &Node<Expr>) -> TypeCheck {
         let result = self.eval_expr(expr)?;
         match result.deref() {
             TypeTag::Bool => Ok(()),
@@ -257,7 +268,15 @@ impl TypeChecker {
         stmt: &Node<Statement>
     ) -> TypeCheck {
         match stmt.deref() {
-            Statement::Emit(_, exprs) => {
+            Statement::Block(body) => {
+                let mut env = Env::chain(&self.types);
+                let sub = TypeChecker::new(env);
+                for s in body {
+                    sub.check_statement(s)?;
+                }
+            },
+            Statement::Emit(_op, exprs) => {
+                // TODO: _op should be a recognizable cairo op.
                 for expr in exprs {
                     self.eval_expr(expr)?;
                 }
@@ -265,13 +284,36 @@ impl TypeChecker {
             Statement::Def(name, val) => {
                 self.types.define(name, &self.eval_expr(val)?);
             }
-            Statement::For(lst, body) => {
-                self.check_iterable(lst)?;
-                self.eval_expr(body)?;
+            Statement::ListIter(iter, lst, body) => {
+                let item = self.is_list(lst)?;
+                let env = Env::chain(&self.types);
+                let sub = TypeChecker::new(env);
+                sub.types.define(iter, &item);
+                sub.check_statement(body)?;
+            },
+            Statement::MapIter(k, v, map, body) => {
+                // TODO: raise proper error, rather than crashing.
+                assert!(k != v, "cannot be the same");
+                let item = self.is_map(map)?;
+                let env = Env::chain(&self.types);
+                let sub = TypeChecker::new(env);
+                sub.types.define(k, &Node::new(TypeTag::Str));
+                sub.types.define(v, &item);
+                sub.check_statement(body)?;
             },
             Statement::While(cond, body) => {
-                self.check_bool(cond)?;
-                self.eval_expr(body)?;
+                self.is_bool(cond)?;
+                self.check_statement(body)?;
+            },
+            Statement::Guard(clauses, default) => {
+                for clause in clauses {
+                    let (pred, body) = clause.deref();
+                    self.is_bool(&Node::new(pred.clone()))?;
+                    self.check_statement(&Node::new(body.clone()))?;
+                }
+                if let Some(stmnt) = default {
+                    self.check_statement(&stmnt)?;
+                }
             }
         };
         Ok(())
