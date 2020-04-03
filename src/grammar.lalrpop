@@ -23,13 +23,26 @@ Comma<T>: Vec<T> = {
 }
 
 
-// A single item in a map.
-MapItem: (String, ast::Expr) = {
-    <k:Str> ":" <v:Expr> => (k, v)
+// Factor out comma-separated lists of things.
+Semicolon<T>: Vec<T> = {
+    <v:(<T> ";")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
 }
 
 
-// Used in list literals and function call arguments.
+// A single item in a map.
+MapItem: (String, ast::Expr) = {
+    <k:Str> ":" <v:Logic> => (k, v)
+}
+
+
+// Any commma-separated list of values.
 ExprList = Comma<Expr>;
 
 
@@ -37,15 +50,71 @@ ExprList = Comma<Expr>;
 MapItems = Comma<MapItem>;
 
 
-// Top-level expression rule.
-//
-// This will always be the lowest-precedence group of operators Right
-// now, this is the logic operators. This way sloppily-parenthesized
-// should do the least surprising thing.
+// Used to disambiguate if-else chains by requiring braces
+StatementBlock: ast::Statement =
+    "{" <stmts:Statement*> "}" =>
+// Small optimization -- avoid overhead of block when we have exactly
+// one statement.
+        if stmts.len() == 1 {
+            stmts[0].clone()
+        } else {
+            ast::statement_block(stmts)
+        };
+
+
+// Single clause in an if-else chain
+Clause: (ast::Expr, ast::Statement) = {
+    <pred: Expr> <body: StatementBlock>
+        => (pred, body),
+}
+
+
+// An if-else chain for statements
+Guard: ast::Statement =
+    "if"
+    <first:Clause>
+    <rest:("elif" <Clause>)*>
+    <default:("else" <Statement>)?>
+    => {
+        let mut clauses = vec!{first};
+        clauses.extend(rest);
+        ast::guard(clauses, default)
+    };
+
+
+// Expression entry point.
 pub Expr: ast::Expr = {
-    <a:Expr> "and" <b:Rel> => ast::bin(ast::BinOp::And, a, b),
-    <a:Expr> "or"  <b:Rel> => ast::bin(ast::BinOp::Or, a, b),
-    <a:Expr> "xor" <b:Rel> => ast::bin(ast::BinOp::Xor, a, b),
+    // A block expression must contain a single, trailing return statement
+    // which will be the value of the block.
+    "{" <stmts:Statement+> "yield" <ret:Logic> ";" "}" =>
+        ast::expr_block(stmts, Some(ret)),
+    // Otherwise we descend to the top-level operator.
+    Logic,
+}
+
+
+
+// Statement rules.
+pub Statement: ast::Statement = {
+    <name:Id> "<-" <exprs:ExprList> ";" => ast::emit(name.as_str(), exprs),
+    "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value),
+    "for" <name:Id> "in" <list:Expr> <body:Statement> =>
+        ast::list_iter(name.as_str(), list, body),
+    "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Statement> =>
+        ast::map_iter(key.as_str(), value.as_str(), map, body),
+    Guard,
+    StatementBlock
+    // TODO: function def sugar
+    // TODO: import
+}
+
+
+// Expression entry point anow, this is the logic operators. This way
+// sloppily-parenthesized logic hould do the least surprising thing.
+pub Logic: ast::Expr = {
+    <a:Logic> "and" <b:Rel> => ast::bin(ast::BinOp::And, a, b),
+    <a:Logic> "or"  <b:Rel> => ast::bin(ast::BinOp::Or, a, b),
+    <a:Logic> "xor" <b:Rel> => ast::bin(ast::BinOp::Xor, a, b),
     Rel
 }
 
@@ -101,11 +170,9 @@ Call: ast::Expr = {
 }
 
 
-// Ideally, we'd allow arbitrary expression on the left hand side, but
-// this results in ambiguity that LALRPOP can't handle.
-//
-// That means extra parenthesis are required to index or select on the
-// result of an expression.
+// XXX: Would like to allow an arbitrary expression to apear LHS
+// without parens; however, this results in ambiguity that LALRPOP
+// can't handle.
 Selection: ast::Expr = {
     <obj:Selection> "." <id:Id> => ast::dot(obj, id.as_str()),
     <obj:Selection> "[" <e:Expr> "]" => ast::index(obj, e),
@@ -113,6 +180,7 @@ Selection: ast::Expr = {
 }
 
 
+// This is the level of literals of any type, including lambdas.
 Term: ast::Expr = {
     Id => ast::Expr::Id(<>),
     Int => ast::Expr::Int(<>),
