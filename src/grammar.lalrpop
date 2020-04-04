@@ -86,8 +86,8 @@ Guard: ast::Statement =
 pub Expr: ast::Expr = {
     // A block expression must contain a single, trailing return statement
     // which will be the value of the block.
-    "{" <stmts:Statement+> "yield" <ret:Logic> ";" "}" =>
-        ast::expr_block(stmts, Some(ret)),
+    "{" <stmts:Statement+> "yield" <ret:Logic> ";"? "}" =>
+        ast::expr_block(stmts, ret),
     // Otherwise we descend to the top-level operator.
     Logic,
 }
@@ -103,7 +103,7 @@ pub Statement: ast::Statement = {
     "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Statement> =>
         ast::map_iter(key.as_str(), value.as_str(), map, body),
     Guard,
-    StatementBlock
+     StatementBlock
     // TODO: function def sugar
     // TODO: import
 }

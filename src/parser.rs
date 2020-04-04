@@ -266,7 +266,25 @@ mod tests {
     }
 
     #[test]
-    fn test_block() {
+    fn test_expr_block() {
+        assert_parses_to("{let x = y; yield 4}", expr_block(
+            vec!{def("x", id("y"))},
+            Int(4))
+        );
+
+        assert_parses_to("{let x = frob(y); yield y * 4}", expr_block(
+            vec!{def("x", call(id("frob"), vec!{id("y")}))},
+            bin(Mul, id("y"), Int(4))
+        ));
+
+        assert_parses_to("{debug <- x; yield x}", expr_block(
+            vec!{emit("debug", vec!{id("x")})},
+            id("x")
+        ));
+    }
+
+    #[test]
+    fn test_statement_block() {
         assert_statement("{}", statement_block(vec!{}));
         assert_statement(
             "{let x = 1; let y = 2; moveto <- x, y;}",
