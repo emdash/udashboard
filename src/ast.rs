@@ -158,8 +158,8 @@ pub fn index(obj: Expr, e: Expr) -> Expr {
 }
 
 
-pub fn expr_block(stmts: Vec<Statement>, e: Option<Expr>) -> Expr {
-    Expr::Block(to_seq(stmts), Node::new(e.unwrap_or(Expr::Unit)))
+pub fn expr_block(stmts: Vec<Statement>, ret: Expr) -> Expr {
+    Expr::Block(to_seq(stmts), Node::new(ret))
 }
 
 
