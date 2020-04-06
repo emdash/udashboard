@@ -72,7 +72,7 @@ impl TypeChecker {
             Expr::Id(name)           => self.eval_id(name),
             Expr::Dot(obj, key)      => self.eval_dot(obj, key),
             Expr::Index(lst, i)      => self.eval_index(lst, i),
-            Expr::Cond(cases)        => self.eval_cond(cases),
+            Expr::Cond(cases, def)   => self.eval_cond(cases, def),
             Expr::Block(stmts, ret)  => self.eval_block(stmts, ret),
             Expr::BinOp(op, l, r)    => self.eval_binop(*op, l, r),
             Expr::UnOp(op, operand)  => self.eval_unop(*op, operand),
@@ -141,7 +141,11 @@ impl TypeChecker {
         }
     }
 
-    pub fn eval_cond(&self, cases: &Seq<(Expr, Expr)>) -> TypeExpr {
+    pub fn eval_cond(
+        &self,
+        cases: &Seq<(Expr, Expr)>,
+        default: &Node<Expr>
+    ) -> TypeExpr {
         let conds: Result<Seq<TypeTag>, TypeError> = cases
             .iter()
             .map(|case| Ok(self.eval_expr(&case.0)?.clone()))
@@ -157,9 +161,11 @@ impl TypeChecker {
             .map(|case| Ok(self.eval_expr(&case.1)?.clone()))
             .collect();
 
+        let mut exprs = exprs?;
+        exprs.push(self.eval_expr(&default)?);
 
         match conds {
-            None => Ok(Self::narrow(exprs?)),
+            None => Ok(Self::narrow(exprs)),
             Some(wrong_type) => Err(
                 Mismatch(wrong_type, Node::new(TypeTag::Bool))
             )
