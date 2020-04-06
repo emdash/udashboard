@@ -442,4 +442,81 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn test_lambda_expr() {
+        assert_parses_to(
+            "() {}",
+            lambda(vec!{}, TypeTag::Unit, map(vec!{}))
+        );
+
+        assert_parses_to(
+            "() 4",
+            lambda(vec!{}, TypeTag::Unit, Int(4))
+        );
+
+
+        assert_parses_to(
+            "() -> Int 4",
+            lambda(vec!{}, TypeTag::Int, Int(4))
+        );
+
+        assert_parses_to(
+            "() {let x = 4; yield x}",
+            lambda(
+                vec!{},
+                TypeTag::Int,
+                expr_block(
+                    vec!{def("x", Int(4))},
+                    id("x")
+                )
+            )
+        );
+
+        assert_parses_to(
+            "(x: Int, y: Int) -> Int x * y",
+            lambda(
+                vec!{(s("x"), TypeTag::Int), (s("y"), TypeTag::Int)},
+                TypeTag::Int,
+                bin(Mul, id("x"), id("y"))
+            )
+        );
+
+        assert_parses_to(
+            "(x: Int) -> Int 4",
+            lambda(
+                vec!{(s("x"), TypeTag::Int)},
+                TypeTag::Int,
+                Int(4)
+            )
+        );
+    }
+
+
+    #[test]
+    fn test_function_def() {
+        assert_statement(
+            r#"func foo(y: Int) -> Int (4 * y)"#,
+            def(
+                "foo",
+                lambda(vec!{(s("y"), TypeTag::Int)},
+                       TypeTag::Int,
+                       bin(Mul, Int(4), id("y")))
+            )
+        );
+
+        assert_statement(
+            r#"proc foo(y: Int) {
+               paint <-;
+            }"#,
+            def(
+                "foo",
+                lambda(
+                    vec!{(s("y"), TypeTag::Int)},
+                    TypeTag::Unit,
+                    expr_block(vec!{emit("paint", vec!{})}, Expr::Unit)
+                )
+            )
+        );
+    }
 }

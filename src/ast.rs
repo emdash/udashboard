@@ -98,6 +98,11 @@ pub fn to_seq<T>(items: Vec<T>) -> Seq<T> {
 }
 
 
+pub fn to_alist<T>(items: Vec<(String, T)>) -> AList<T> {
+    items.into_iter().map(|i| (i.0, Node::new(i.1))).collect()
+}
+
+
 pub fn to_map<T>(items: Vec<(String, T)>) -> Map<T> {
     items.into_iter().map(|i| (i.0, Node::new(i.1))).collect()
 }
@@ -160,6 +165,15 @@ pub fn index(obj: Expr, e: Expr) -> Expr {
 
 pub fn expr_block(stmts: Vec<Statement>, ret: Expr) -> Expr {
     Expr::Block(to_seq(stmts), Node::new(ret))
+}
+
+
+pub fn lambda(
+    args: Vec<(String, TypeTag)>,
+    _ret: TypeTag,
+    body: Expr
+) -> Expr {
+    Expr::Lambda(to_alist(args), Node::new(body))
 }
 
 
