@@ -82,16 +82,37 @@ Guard: ast::Statement =
     };
 
 
+pub Type: ast::TypeTag = {
+    "Bool" => ast::TypeTag::Bool,
+    "Int" => ast::TypeTag::Int,
+    "Float" => ast::TypeTag::Float,
+    "Str" => ast::TypeTag::Str,
+    "Point" => ast::TypeTag::Point,
+    "List" "<" <item:Type> ">" => ast::TypeTag::List(ast::Node::new(item)),
+    "Map" "<" <items:(<Str> ":" <Type>)*> ">" =>
+        ast::TypeTag::Map(ast::to_map(items)),
+}
+
+
+Param: (String, ast::TypeTag) =
+    <name:Id> ":" <t:Type> => (name, t);
+
+
+Arglist: Vec<(String, ast::TypeTag)> =
+    "(" <args:Comma<Param>> ")" => args;
+
+
 // Expression entry point.
 pub Expr: ast::Expr = {
     // A block expression must contain a single, trailing return statement
     // which will be the value of the block.
-    "{" <stmts:Statement+> "yield" <ret:Logic> ";"? "}" =>
-        ast::expr_block(stmts, ret),
+    "{" <stmts:Statement+> <ret:("yield" <Logic>)?> ";"? "}" =>
+        ast::expr_block(stmts, ret.unwrap_or(ast::Expr::Unit)),
+    <args:Arglist> <ret:("->" <Type>)?> <body:Expr> =>
+        ast::lambda(args, ret.unwrap_or(ast::TypeTag::Unit), body),
     // Otherwise we descend to the top-level operator.
     Logic,
 }
-
 
 
 // Statement rules.
@@ -102,10 +123,19 @@ pub Statement: ast::Statement = {
         ast::list_iter(name.as_str(), list, body),
     "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Statement> =>
         ast::map_iter(key.as_str(), value.as_str(), map, body),
+    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Expr> =>
+        ast::def(name.as_str(), ast::lambda(args, ret, body)),
+    "proc" <name:Id> <args:Arglist> "{" <body:Statement*> "}" =>
+        ast::def(
+            name.as_str(),
+            ast::lambda(
+                args, ast::
+                TypeTag::Unit,
+                ast::expr_block(body, ast::Expr::Unit)
+            )
+        ),
     Guard,
-     StatementBlock
-    // TODO: function def sugar
-    // TODO: import
+    StatementBlock
 }
 
 
