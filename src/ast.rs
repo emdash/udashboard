@@ -191,7 +191,7 @@ pub enum Statement {
 
 
 pub fn statement_block(statements: Vec<Statement>) -> Statement {
-    Statement::Block(to_seq(statements))
+    Statement::ExprForEffect(Rc::new(expr_block(statements, Expr::Unit)))
 }
 
 

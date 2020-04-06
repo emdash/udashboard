@@ -269,17 +269,21 @@ impl TypeChecker {
         }
     }
 
+    pub fn is_unit(&self, expr: &Node<Expr>) -> TypeCheck {
+        let result = self.eval_expr(expr)?;
+        match result.deref() {
+            TypeTag::Unit => Ok(()),
+            _ => Err(Mismatch(result, Node::new(TypeTag::Unit)))
+        }
+    }
+
     pub fn check_statement(
         &self,
         stmt: &Node<Statement>
     ) -> TypeCheck {
         match stmt.deref() {
-            Statement::Block(body) => {
-                let mut env = Env::chain(&self.types);
-                let sub = TypeChecker::new(env);
-                for s in body {
-                    sub.check_statement(s)?;
-                }
+            Statement::ExprForEffect(body) => {
+                self.is_unit(body)?;
             },
             Statement::Emit(_op, exprs) => {
                 // TODO: _op should be a recognizable cairo op.
@@ -503,6 +507,63 @@ mod tests {
             Err(KeyError(map! {"bar" => Int}, string! {"baz"}))
         );
     }
+
+
+    #[test]
+    fn test_list_iter() {
+        let tc = TypeChecker::new(
+            env!{"x" => TypeTag::List(node!{TypeTag::Str})}
+        );
+
+        let statement = node! {list_iter(
+            "i",
+            id("x"),
+            emit("show_text", vec!{id("i")})
+        )};
+
+        assert_eq!(tc.check_statement(&statement), Ok(()));
+
+        let statement = node! {list_iter(
+            "i",
+            id("x"),
+            Statement::ExprForEffect(Node::new(expr_block(vec!{}, id("i"))))
+        )};
+
+        assert_eq!(
+            tc.check_statement(&statement),
+            Err(Mismatch(Node::new(TypeTag::Str), Node::new(TypeTag::Unit)))
+        );
+    }
+
+
+    #[test]
+    fn test_map_iter() {
+        let tc = TypeChecker::new(
+            env!{"x" => TypeTag::Map(map!{"x" => Str})}
+        );
+
+        let statement = node! {map_iter(
+            "k",
+            "v",
+            id("x"),
+            emit("show_text", vec!{id("v")})
+        )};
+
+        assert_eq!(tc.check_statement(&statement), Ok(()));
+
+        let statement = node! {map_iter(
+            "k",
+            "v",
+            id("x"),
+            Statement::ExprForEffect(Node::new(expr_block(vec!{}, id("v"))))
+        )};
+
+        assert_eq!(
+            tc.check_statement(&statement),
+            Err(Mismatch(Node::new(TypeTag::Str), Node::new(TypeTag::Unit)))
+        );
+    }
+
 
     #[test]
     fn test_lambda() {
