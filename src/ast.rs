@@ -84,7 +84,7 @@ pub enum Expr {
     Id(String),
     Dot(Node<Expr>, String),
     Index(Node<Expr>, Node<Expr>),
-    Cond(Seq<(Expr, Expr)>),
+    Cond(Seq<(Expr, Expr)>, Node<Expr>),
     Block(Seq<Statement>, Node<Expr>),
     BinOp(BinOp, Node<Expr>, Node<Expr>),
     UnOp(UnOp, Node<Expr>),
@@ -160,6 +160,11 @@ pub fn dot(obj: Expr, id: &str) -> Expr {
 
 pub fn index(obj: Expr, e: Expr) -> Expr {
     Expr::Index(Node::new(obj), Node::new(e))
+}
+
+
+pub fn cond(cases: Vec<(Expr, Expr)>, default: Expr) -> Expr {
+    Expr::Cond(to_seq(cases), Node::new(default))
 }
 
 
