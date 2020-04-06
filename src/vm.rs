@@ -201,6 +201,7 @@ macro_rules! operator {
         pub fn $name (&self, other: &Value) -> Result<Value> {
             // Bringing value into scope saves us some characters.
             use Value::*;
+            #[allow(unreachable_patterns)]
             match (self, other) {
                 $($p => Ok($e)),+ ,
                 (a, b) => Err(type_mismatch(a, b))
@@ -1069,9 +1070,6 @@ mod tests {
 
     type VM = super::VM;
     type Program = super::Program;
-    type Opcode = super::Opcode;
-    type Output = dyn super::Output;
-
     use super::Opcode::*;
 
     impl super::Output for () {
@@ -1083,7 +1081,7 @@ mod tests {
 
     // Useful for debugging in unit tests.
     impl super::Output for Stdout {
-        fn output(&mut self, ef: CairoOp, vm: &mut VM) -> Result<()>{
+        fn output(&mut self, _: CairoOp, vm: &mut VM) -> Result<()>{
             trace!("{:?}", vm.pop()?);
             Ok(())
         }
@@ -1091,7 +1089,7 @@ mod tests {
 
     // Used for explicitly testing the effect mechanism.
     impl super::Output for Vec<super::Value> {
-        fn output(&mut self, ef: CairoOp, vm: &mut VM) -> Result<()>{
+        fn output(&mut self, _: CairoOp, vm: &mut VM) -> Result<()>{
             self.push(vm.pop()?);
             Ok(())
         }
@@ -1764,7 +1762,9 @@ mod tests {
         };
         let mut vm = VM::new(prog, 1);
         let env = HashMap::new();
+
         let status = vm.exec(&env, &mut output);
+        assert_eq!(status, Ok(()));
 
         assert_eq!(
             output,

@@ -6,24 +6,8 @@ use crate::config::Screen;
 
 use gtk::prelude::*;
 use gtk::*;
-use cairo::*;
 use std::io::stdin;
 use std::process;
-
-// Render the entire UI.
-fn draw(cr: &Context, time: f64) {
-    let s = 5.0 + 5.0 * time.sin();
-    cr.set_source_rgb(1.0, 1.0, 1.0);
-    cr.paint();
-
-    cr.set_source_rgb(1.0, 0.0, 0.0);
-
-    cr.save();
-    cr.scale(s, s);
-    cr.rectangle(100.0, 100.0, 100.0, 100.0);
-    cr.restore();
-    cr.stroke();
-}
 
 
 pub fn run(screen: Screen, renderer: CairoRenderer) {
@@ -33,7 +17,7 @@ pub fn run(screen: Screen, renderer: CairoRenderer) {
     }
 
     let data = ReadSource::new(stdin());
-    let clock = Clock::new();
+    let _clock = Clock::new();
     let window = Window::new(WindowType::Toplevel);
     let da = DrawingArea::new();
 

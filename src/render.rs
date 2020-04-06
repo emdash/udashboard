@@ -29,7 +29,6 @@ use crate::vm::Value;
 
 
 use std::cell::RefCell;
-#[macro_use]
 use std::fs;
 
 use cairo;
@@ -40,11 +39,11 @@ use cairo::{Context, Format, ImageSurface};
 // TODO: promote to env var or cli param ideally this is derived from
 // the input program, up to some reasonable maximm limit determined by
 // available ram.
-const stack_depth: usize = 1024;
+const STACK_DEPTH: usize = 1024;
 
 
 pub struct CairoRenderer {
-    screen: Screen,
+    pub screen: Screen,
     vm: RefCell<VM>
 }
 
@@ -125,7 +124,7 @@ impl CairoRenderer {
         screen: Screen,
         program: Program
     ) -> CairoRenderer {
-        let vm = RefCell::new(VM::new(program, stack_depth));
+        let vm = RefCell::new(VM::new(program, STACK_DEPTH));
         CairoRenderer { screen, vm }
     }
 
@@ -155,23 +154,21 @@ impl CairoRenderer {
 pub struct PNGRenderer {
     renderer: CairoRenderer,
     path: String,
-    screen: Screen
 }
 
 impl PNGRenderer {
     pub fn new(
         path: String,
-        screen: Screen,
         renderer: CairoRenderer
     ) -> PNGRenderer {
-        PNGRenderer {renderer, path, screen}
+        PNGRenderer {renderer, path}
     }
 
     pub fn render(&self, state: &State) {
         let surface = ImageSurface::create(
             Format::ARgb32,
-            self.screen.width as i32,
-            self.screen.height as i32
+            self.renderer.screen.width as i32,
+            self.renderer.screen.height as i32
         ).expect("Couldn't create surface.");
         let cr = Context::new(&surface);
 

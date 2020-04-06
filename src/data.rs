@@ -91,7 +91,7 @@ impl ReadSource {
             let mut reader = BufReader::new(src);
             loop {
                 let mut line = String::new();
-                reader.read_line(&mut line);
+                reader.read_line(&mut line).unwrap();
 
                 match sender.try_send(line) {
                     Ok(_) => (),

@@ -21,7 +21,7 @@ impl<T> Env<T> where T: Clone + Debug {
     }
 
     pub fn chain(parent: &Node<Env<T>>) -> Env<T> {
-        let mut ret = Self::new(Some(parent.clone()));
+        let ret = Self::new(Some(parent.clone()));
         ret
     }
 
