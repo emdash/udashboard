@@ -465,7 +465,7 @@ mod tests {
             "() {let x = 4; yield x}",
             lambda(
                 vec!{},
-                TypeTag::Int,
+                TypeTag::Unit,
                 expr_block(
                     vec!{def("x", Int(4))},
                     id("x")
