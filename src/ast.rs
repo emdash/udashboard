@@ -89,7 +89,7 @@ pub enum Expr {
     BinOp(BinOp, Node<Expr>, Node<Expr>),
     UnOp(UnOp, Node<Expr>),
     Call(Node<Expr>, Seq<Expr>),
-    Lambda(AList<TypeTag>, Node<Expr>)
+    Lambda(AList<TypeTag>, Node<TypeTag>, Node<Expr>)
 }
 
 
@@ -170,17 +170,17 @@ pub fn expr_block(stmts: Vec<Statement>, ret: Expr) -> Expr {
 
 pub fn lambda(
     args: Vec<(String, TypeTag)>,
-    _ret: TypeTag,
+    ret: TypeTag,
     body: Expr
 ) -> Expr {
-    Expr::Lambda(to_alist(args), Node::new(body))
+    Expr::Lambda(to_alist(args), Node::new(ret), Node::new(body))
 }
 
 
 // ADT for effects and structure
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
-    Block(Seq<Statement>),
+    ExprForEffect(Node<Expr>),
     Emit(String, Seq<Expr>),
     Def(String, Node<Expr>),
     ListIter(String, Node<Expr>, Node<Statement>),

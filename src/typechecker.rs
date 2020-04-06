@@ -77,7 +77,7 @@ impl TypeChecker {
             Expr::BinOp(op, l, r)    => self.eval_binop(*op, l, r),
             Expr::UnOp(op, operand)  => self.eval_unop(*op, operand),
             Expr::Call(func, args)   => self.eval_call(func, args),
-            Expr::Lambda(args, body) => self.eval_lambda(args, body)
+            Expr::Lambda(args, ret, body) => self.eval_lambda(args, ret, body)
         }
     }
 
@@ -225,15 +225,21 @@ impl TypeChecker {
     pub fn eval_lambda(
         &self,
         args: &AList<TypeTag>,
+        ret: &Node<TypeTag>,
         body: &Node<Expr>
     ) -> TypeExpr {
-        let mut env = Env::chain(&self.types);
+        let env = Env::chain(&self.types);
         env.import(args);
         let sub = TypeChecker::new(env);
-        Ok(Node::new(TypeTag::Lambda(
-            args.iter().map(|arg| arg.1.clone()).collect(),
-            sub.eval_expr(body)?
-        )))
+        let body_type = sub.eval_expr(body)?;
+        if body_type.deref() == ret.deref() {
+            Ok(Node::new(TypeTag::Lambda(
+                args.iter().map(|arg| arg.1.clone()).collect(),
+                ret.clone()
+            )))
+        } else {
+            Err(Mismatch(ret.clone(), body_type))
+        }
     }
 
     // Check whether expr is a list, and return the item type.
@@ -495,6 +501,23 @@ mod tests {
                 string! {"baz"}
             ),
             Err(KeyError(map! {"bar" => Int}, string! {"baz"}))
+        );
+    }
+
+    #[test]
+    fn test_lambda() {
+        use crate::ast::BinOp::*;
+        assert_types_to!(
+            env!{},
+            lambda(
+                vec!{(s("x"), TypeTag::Int)},
+                TypeTag::Int,
+                bin(Add, id("x"), Expr::Int(4))
+            ),
+            Ok(TypeTag::Lambda(
+                to_seq(vec!{TypeTag::Int}),
+                node!{TypeTag::Int}
+            ))
         );
     }
 }
