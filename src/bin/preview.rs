@@ -16,11 +16,7 @@
 // License along with this program.  If not, see
 // <https://www.gnu.org/licenses/>.
 
-use std::{
-    collections::HashMap,
-    env::args,
-};
-
+use std::env::args;
 use udashboard::config::Screen;
 use udashboard::vm;
 use udashboard::windowed;

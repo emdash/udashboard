@@ -119,7 +119,7 @@ impl TypeChecker {
         stmts: &Seq<Statement>,
         ret: &Node<Expr>
     ) -> TypeExpr {
-        let mut env = Env::chain(&self.types);
+        let env = Env::chain(&self.types);
         let sub = TypeChecker::new(env);
         for stmt in stmts {
             sub.check_statement(stmt)?
@@ -134,7 +134,7 @@ impl TypeChecker {
         if index.deref() == &TypeTag::Int {
             match lst.deref() {
                 TypeTag::List(item) => Ok(item.clone()),
-                x => Err(NotAList(lst.clone()))
+                _ => Err(NotAList(lst.clone()))
             }
         } else {
             Err(ListIndexMustBeInt(index))
@@ -172,34 +172,35 @@ impl TypeChecker {
         l: &Node<Expr>,
         r: &Node<Expr>
     ) -> TypeExpr {
-        use TypeTag::*;
+        use TypeTag as TT;
         let l = self.eval_expr(l)?;
         let r = self.eval_expr(r)?;
         match (op, l.deref(), r.deref()) {
             (BinOp::Eq, a, b) if a == b => Ok(Node::new(a.clone())),
-            (_, Bool, Bool)   => Ok(Node::new(Bool)),
-            (_, Int, Int)     => Ok(Node::new(Int)),
-            (_, Float, Float) => Ok(Node::new(Float)),
-            (_, Str, Str)     => Ok(Node::new(Float)),
-            _                 => Err(Mismatch(l, r))
+            (_, TT::Bool, TT::Bool)   => Ok(Node::new(TT::Bool)),
+            (_, TT::Int, TT::Int)     => Ok(Node::new(TT::Int)),
+            (_, TT::Float, TT::Float) => Ok(Node::new(TT::Float)),
+            (_, TT::Str, TT::Str)     => Ok(Node::new(TT::Float)),
+            _                         => Err(Mismatch(l, r))
         }
     }
 
     pub fn eval_unop(&self, op: UnOp, operand: &Node<Expr>) -> TypeExpr {
-        use TypeTag::*;
+        use TypeTag as TT;
         let type_ = self.eval_expr(operand)?;
-        let numeric = Node::new(Union(vec! {
-            Node::new(Int),
-            Node::new(Float)
+        let numeric = Node::new(TT::Union(vec! {
+            Node::new(TT::Int),
+            Node::new(TT::Float)
         }));
         match (op, type_.deref()) {
-            (Not, Bool)  => Ok(Node::new(Bool)),
-            (Not, _)     => Err(Mismatch(type_, Node::new(Bool))),
-            (Neg, Int)   => Ok(Node::new(Int)),
-            (Neg, Float) => Ok(Node::new(Float)),
-            (Neg, _)     => Err(Mismatch(type_, numeric)),
-            (Abs, Int)   => Ok(Node::new(Int)),
-            (Abs, Float) => Ok(Node::new(Float))
+            (UnOp::Not, TT::Bool)  => Ok(Node::new(TT::Bool)),
+            (UnOp::Not, _)         => Err(Mismatch(type_, Node::new(TT::Bool))),
+            (UnOp::Neg, TT::Int)   => Ok(Node::new(TT::Int)),
+            (UnOp::Neg, TT::Float) => Ok(Node::new(TT::Float)),
+            (UnOp::Neg, _)         => Err(Mismatch(type_, numeric)),
+            (UnOp::Abs, TT::Int)   => Ok(Node::new(TT::Int)),
+            (UnOp::Abs, TT::Float) => Ok(Node::new(TT::Float)),
+            (UnOp::Abs, _)         => Err(Mismatch(type_, numeric))
         }
     }
 
@@ -342,6 +343,7 @@ impl TypeChecker {
 mod tests {
     use super::*;
 
+    // XXX: we  can get rid of these now.
     // The missing String literal
     macro_rules! string(
         { $s:expr } => { String::from($s) }
@@ -369,10 +371,12 @@ mod tests {
     macro_rules! assert_types_to(
         ( $env:expr, $e:expr, Ok($t:expr) ) => {
             let tc = TypeChecker::new($env);
+            #[allow(unused_imports)]
             let expr = {
                 use Expr::*;
                 $e
             };
+            #[allow(unused_imports)]
             let type_ = {
                 use TypeTag::*;
                 $t
@@ -385,6 +389,7 @@ mod tests {
                 use Expr::*;
                 $e
             };
+            #[allow(unused_imports)]
             let err = {
                 use TypeError::*;
                 use TypeTag::*;
@@ -397,7 +402,8 @@ mod tests {
 
     macro_rules! env (
         ( $( $id:expr => $v:expr),* ) => { {
-            let mut env = Env::root();
+            let env = Env::root();
+            #[allow(unused_imports)]
             {
                 use TypeTag::*;
                 $( env.define(&string! {$id}, & node! {$v}); )*

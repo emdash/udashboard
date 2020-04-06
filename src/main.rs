@@ -24,7 +24,6 @@ use std::{
 
 use udashboard::v1;
 use udashboard::{
-    config::{Style, Pattern, Color},
     drm,
     render::{CairoRenderer, PNGRenderer},
     data::{State, ReadSource},
@@ -61,7 +60,6 @@ fn main() {
 
         PNGRenderer::new(
             "screenshot.png".to_string(),
-            config.screen,
             renderer
         ).render(&state);
     }
