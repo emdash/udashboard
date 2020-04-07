@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::ops::Deref;
 
 
 // Abstract over various memory management strategies.
@@ -191,7 +192,21 @@ pub enum Statement {
     ListIter(String, Node<Expr>, Node<Statement>),
     MapIter(String, String, Node<Expr>, Node<Statement>),
     While(Node<Expr>, Node<Statement>),
-    Guard(Seq<(Expr, Statement)>, Option<Node<Statement>>),
+}
+
+
+pub fn expr_for_effect(expr: Expr) -> Statement {
+    match &expr {
+        Expr::Block(stmts, node) => match node.deref() {
+            Expr::Unit => if stmts.len() == 1 {
+                stmts[0].deref().clone()
+            } else {
+                Statement::ExprForEffect(Node::new(expr))
+            },
+            _ => Statement::ExprForEffect(Node::new(expr))
+        },
+        _ => Statement::ExprForEffect(Node::new(expr))
+    }
 }
 
 
@@ -243,7 +258,18 @@ pub fn guard(
     clauses: Vec<(Expr, Statement)>,
     default: Option<Statement>
 ) -> Statement {
-    Statement::Guard(to_seq(clauses), default.map(|x| Node::new(x)))
+    let clauses = clauses
+        .into_iter()
+        .map(|x| (x.0, expr_block(vec!{x.1}, Expr::Unit)))
+        .collect();
+
+    let default = if let Some(default) = default {
+        expr_block(vec!{default}, Expr::Unit)
+    } else {
+        Expr::Unit
+    };
+
+    expr_for_effect(cond(clauses, default))
 }
 
 

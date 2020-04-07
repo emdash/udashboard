@@ -10,76 +10,27 @@ use std::str::FromStr;
 grammar;
 
 
-// Factor out comma-separated lists of things.
-Comma<T>: Vec<T> = {
-    <v:(<T> ",")*> <e:T?> => match e {
-        None => v,
-        Some(e) => {
-            let mut v = v;
-            v.push(e);
-            v
-        }
-    }
+// Statement rules.
+pub Statement: ast::Statement = {
+    <name:Id> "<-" <exprs:ExprList> ";" => ast::emit(name.as_str(), exprs),
+    "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value),
+    <e: SimpleExpr> ";" => ast::expr_for_effect(e),
+    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block> =>
+        ast::def(name.as_str(), ast::lambda(args, ret, body)),
+    "proc" <name:Id> <args:Arglist> <body:Block> =>
+        ast::def(name.as_str(), ast::lambda(args, ast::TypeTag::Unit, body)),
+    "for" <name:Id> "in" <list:Expr> <body:Block> =>
+        ast::list_iter(name.as_str(), list, ast::expr_for_effect(body)),
+    "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Block> =>
+        ast::map_iter(key.as_str(), value.as_str(), map, ast::expr_for_effect(body)),
 }
 
 
-// Factor out comma-separated lists of things.
-Semicolon<T>: Vec<T> = {
-    <v:(<T> ";")*> <e:T?> => match e {
-        None => v,
-        Some(e) => {
-            let mut v = v;
-            v.push(e);
-            v
-        }
-    }
+// Expression entry point.
+pub Expr: ast::Expr = {
+    Block,
+    SimpleExpr,
 }
-
-
-// A single item in a map.
-MapItem: (String, ast::Expr) = {
-    <k:Str> ":" <v:Logic> => (k, v)
-}
-
-
-// Any commma-separated list of values.
-ExprList = Comma<Expr>;
-
-
-// So far only used in maps.
-MapItems = Comma<MapItem>;
-
-
-// Used to disambiguate if-else chains by requiring braces
-StatementBlock: ast::Statement =
-    "{" <stmts:Statement*> "}" =>
-// Small optimization -- avoid overhead of block when we have exactly
-// one statement.
-        if stmts.len() == 1 {
-            stmts[0].clone()
-        } else {
-            ast::statement_block(stmts)
-        };
-
-
-// Single clause in an if-else chain
-Clause: (ast::Expr, ast::Statement) = {
-    <pred: Expr> <body: StatementBlock>
-        => (pred, body),
-}
-
-
-// An if-else chain for statements
-Guard: ast::Statement =
-    "if"
-    <first:Clause>
-    <rest:("elif" <Clause>)*>
-    <default:("else" <Statement>)?>
-    => {
-        let mut clauses = vec!{first};
-        clauses.extend(rest);
-        ast::guard(clauses, default)
-    };
 
 
 pub Type: ast::TypeTag = {
@@ -91,6 +42,37 @@ pub Type: ast::TypeTag = {
     "List" "<" <item:Type> ">" => ast::TypeTag::List(ast::Node::new(item)),
     "Map" "<" <items:(<Str> ":" <Type>)*> ">" =>
         ast::TypeTag::Map(ast::to_map(items)),
+    // TODO: Union
+    // TODO?: Unit / None?
+    // TODO?: Maybe type
+}
+
+
+SimpleExpr: ast::Expr = {
+    Lambda,
+    Guard,
+    Logic,
+}
+
+
+// An if-else chain for statements
+Guard: ast::Expr =
+    "if"
+    <first:GuardClause>
+    <rest:("elif" <GuardClause>)*>
+    <default:("else" <Block>)?>
+    => {
+        let mut clauses = vec!{first};
+        clauses.extend(rest);
+        ast::cond(clauses, default.unwrap_or(ast::Expr::Unit))
+    };
+
+
+
+// Single clause in an if-else chain
+GuardClause: (ast::Expr, ast::Expr) = {
+    "(" <pred: Expr> ")" <body: Block>
+        => (pred, body),
 }
 
 
@@ -102,46 +84,21 @@ Arglist: Vec<(String, ast::TypeTag)> =
     "(" <args:Comma<Param>> ")" => args;
 
 
-// Expression entry point.
-pub Expr: ast::Expr = {
-    // A block expression must contain a single, trailing return statement
-    // which will be the value of the block.
-    "{" <stmts:Statement+> <ret:("yield" <Logic>)?> ";"? "}" =>
-        ast::expr_block(stmts, ret.unwrap_or(ast::Expr::Unit)),
-    <args:Arglist> <ret:("->" <Type>)?> <body:Expr> =>
-        ast::lambda(args, ret.unwrap_or(ast::TypeTag::Unit), body),
-    // Otherwise we descend to the top-level operator.
-    Logic,
-}
+Lambda: ast::Expr = <args:Arglist> <ret:("->" <Type>)?> <body:Expr>
+    => ast::lambda(args, ret.unwrap_or(ast::TypeTag::Unit), body);
 
-
-// Statement rules.
-pub Statement: ast::Statement = {
-    <name:Id> "<-" <exprs:ExprList> ";" => ast::emit(name.as_str(), exprs),
-    "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value),
-    "for" <name:Id> "in" <list:Expr> <body:Statement> =>
-        ast::list_iter(name.as_str(), list, body),
-    "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Statement> =>
-        ast::map_iter(key.as_str(), value.as_str(), map, body),
-    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Expr> =>
-        ast::def(name.as_str(), ast::lambda(args, ret, body)),
-    "proc" <name:Id> <args:Arglist> "{" <body:Statement*> "}" =>
-        ast::def(
-            name.as_str(),
-            ast::lambda(
-                args, ast::
-                TypeTag::Unit,
-                ast::expr_block(body, ast::Expr::Unit)
-            )
-        ),
-    Guard,
-    StatementBlock
+// A block expression must contain a single, trailing return statement
+// which will be the value of the block.
+Block: ast::Expr = {
+    "{" <stmts:Statement+> <ret:("yield" <SimpleExpr>)?> "}"
+        => ast::expr_block(stmts, ret.unwrap_or(ast::Expr::Unit)),
+    "{" <ret:("yield" <SimpleExpr>)> "}" => ret,
 }
 
 
 // Expression entry point anow, this is the logic operators. This way
 // sloppily-parenthesized logic hould do the least surprising thing.
-pub Logic: ast::Expr = {
+Logic: ast::Expr = {
     <a:Logic> "and" <b:Rel> => ast::bin(ast::BinOp::And, a, b),
     <a:Logic> "or"  <b:Rel> => ast::bin(ast::BinOp::Or, a, b),
     <a:Logic> "xor" <b:Rel> => ast::bin(ast::BinOp::Xor, a, b),
@@ -160,7 +117,6 @@ Rel: ast::Expr = {
 };
 
 
-// Lowest precedence arithmetic operator.
 Sum: ast::Expr = {
     <a:Sum> "+" <b:Factor> => ast::bin(ast::BinOp::Add, a, b),
     <a:Sum> "-" <b:Factor> => ast::bin(ast::BinOp::Sub, a, b),
@@ -223,8 +179,48 @@ Term: ast::Expr = {
 };
 
 
+// A single item in a map.
+MapItem: (String, ast::Expr) = {
+    <k:Str> ":" <v:Logic> => (k, v)
+}
+
+
 Int: i64 = r"-?[0-9]+" => i64::from_str(<>).unwrap();
 Float: f64 = r"-?[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap();
 Id: String = r"[A-Za-z_][A-Za-z0-9_]*" => <>.to_owned();
 Boolean: bool = {"true" => true, "false" => false};
 Str: String = <s:r#""(([^\\"]|\\.)*)""#> => s[1..(s.len() - 1)].to_string();
+
+
+// Factor out comma-separated lists of things.
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+}
+
+
+// Semi-colon separated lists of things.
+Semicolon<T>: Vec<T> = {
+    <v:(<T> ";")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+}
+
+
+// Any commma-separated list of values.
+ExprList = Comma<Expr>;
+
+
+// So far only used in maps.
+MapItems = Comma<MapItem>;

@@ -322,16 +322,6 @@ impl TypeChecker {
                 self.is_bool(cond)?;
                 self.check_statement(body)?;
             },
-            Statement::Guard(clauses, default) => {
-                for clause in clauses {
-                    let (pred, body) = clause.deref();
-                    self.is_bool(&Node::new(pred.clone()))?;
-                    self.check_statement(&Node::new(body.clone()))?;
-                }
-                if let Some(stmnt) = default {
-                    self.check_statement(&stmnt)?;
-                }
-            }
         };
         Ok(())
     }
