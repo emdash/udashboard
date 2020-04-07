@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn test_if() {
         assert_statement(
-            "if (a) { text <- b; };",
+            "if (a) { text <- b; }",
             guard(
                 vec!{(id("a"), emit("text", vec!{id("b")}))},
                 None
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_if_else() {
         assert_statement(
-            r#"if (a) { text <- b; } else { text <- "error"; };"#,
+            r#"if (a) { text <- b; } else { text <- "error"; }"#,
             guard(
                 vec!{(id("a"), emit("text", vec!{id("b")}))},
                 Some(emit("text", vec!{string("error")}))
@@ -361,7 +361,7 @@ mod tests {
                text <- "b";
             } else {
                text <- "error";
-            };"#,
+            }"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -380,7 +380,7 @@ mod tests {
                text <- "c";
             } else {
                text <- "error";
-            };"#,
+            }"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -399,7 +399,7 @@ mod tests {
                text <- "a";
             } elif (b) {
                text <- "b";
-            };"#,
+            }"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -416,7 +416,7 @@ mod tests {
                text <- "b";
             } elif (c) {
                text <- "c";
-            };"#,
+            }"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -425,6 +425,54 @@ mod tests {
                 },
                 None
             )
+        );
+    }
+
+    fn anon(statements: Vec<Statement>) -> Expr {
+        lambda(vec!{}, TypeTag::Unit, expr_block(statements, Expr::Unit))
+    }
+
+    fn tree(
+        func: Expr,
+        args: Vec<Expr>, trailing: Vec<Statement>
+    ) -> Statement {
+        let mut args = args;
+        args.push(anon(trailing));
+        expr_for_effect(call(func, args))
+    }
+
+    #[test]
+    fn test_tree_expr() {
+        assert_statement("foo();", expr_for_effect(
+            call(id("foo"), vec!{})
+        ));
+
+        assert_statement(
+            "foo() { paint <-;}",
+            tree(id("foo"), vec!{}, vec!{emit("paint", vec!{})})
+        );
+
+        assert_statement(
+            r#"
+            foo(x) {
+                bar(y, z) {
+                   gronk();
+                   frobulate();
+                }
+                frobulate();
+            }
+            "#,
+            tree(id("foo"), vec!{id("x")}, vec!{
+                tree(
+                    id("bar"),
+                    vec!{id("y"), id("z")},
+                    vec!{
+                        expr_for_effect(call(id("gronk"), vec!{})),
+                        expr_for_effect(call(id("frobulate"), vec!{}))
+                    }
+                ),
+                expr_for_effect(call(id("frobulate"), vec!{}))
+            })
         );
     }
 

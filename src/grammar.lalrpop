@@ -66,8 +66,13 @@ Let: ast::Statement =
     "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value);
 
 
-// Evaluate the given expression for its side effects.
-EffectExpr: ast::Statement = <e: SimpleExpr> ";" => ast::expr_for_effect(e);
+// An expression evaluated for its side effects in a statement context.
+//
+// To keep the LALRPOP happy, this is a subset of expressions.
+EffectExpr: ast::Statement = {
+    <Cond> => ast::expr_for_effect(<>),
+    TreeExpr
+}
 
 
 // Iterate over a collection.
@@ -186,6 +191,20 @@ InvTerm: ast::Expr = {
     Call
 };
 
+
+// Allow a function call to consume a trailing block in a statement context.
+//
+// Concept Inspired by OpenScad and Ruby
+TreeExpr: ast::Statement = {
+    <func:Selection> "(" <args:ExprList> ")" <block:Block>
+        => {
+            let mut args = args;
+            args.push(ast::lambda(vec!{}, ast::TypeTag::Unit, block));
+            ast::expr_for_effect(ast::call(func, args))
+        },
+    <func:Selection> "(" <args:ExprList> ")" ";"
+        => ast::expr_for_effect(ast::call(func, args))
+};
 
 // We want indexing and selection to bind before function calls, so that
 // foo.bar(a) parses as ((dot foo bar) a), not (dot foo (bar a))
