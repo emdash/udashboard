@@ -281,105 +281,87 @@ mod tests {
             vec!{emit("debug", vec!{id("x")})},
             id("x")
         ));
-    }
 
-    #[test]
-    fn test_statement_block() {
-        assert_statement("{}", statement_block(vec!{}));
-        assert_statement(
-            "{let x = 1; let y = 2; moveto <- x, y;}",
-            statement_block(vec!{
-                def("x", Int(1)),
-                def("y", Int(2)),
-                emit("moveto", vec!{ id("x"), id("y")})
-            })
-        );
-
-        assert_statement(
-            "{{} {{let x = 1; let y = 2;}}}",
-            statement_block(vec!{
-                statement_block(vec!{}),
-                statement_block(vec!{def("x", Int(1)), def("y", Int(2))})
-            })
-        );
-
-        assert_statement(
-            "{{{{{let y = 1;}}}}}",
-            def("y", Int(1))
+        assert_parses_to(
+            "{let x = {let y = 2; yield y * 3}; yield x}",
+            expr_block(
+                vec!{
+                    def("x",
+                        expr_block(
+                            vec!{def("y", Int(2))},
+                            bin(Mul, id("y"), Int(3))
+                        )
+                    )
+                },
+                id("x")
+            )
         );
     }
 
     #[test]
     fn test_list_iter() {
-        let test = r#"{
-              let x = [1, 2, 3];
+        let test = r#"
               for i in x {
                   moveto <- i, i;
                   circle <- 50.0;
               }
+        "#;
 
-        }"#;
-
-        assert_statement(test, statement_block(vec!{
-            def("x", list(vec!{Int(1), Int(2), Int(3)})),
-            list_iter("i", id("x"), statement_block(vec!{
-                emit("moveto", vec!{id("i"), id("i")}),
-                emit("circle", vec!{Float(50.0)})
-            }))
-        }));
+        assert_statement(test, list_iter("i", id("x"), statement_block(vec!{
+            emit("moveto", vec!{id("i"), id("i")}),
+            emit("circle", vec!{Float(50.0)})
+        })));
     }
 
 
     #[test]
     fn test_map_iter() {
-        let test = r#"{
-              let x = {"a": 1, "b": 2, "c": 3};
+        let test = r#"
               for (k, v) in x {
                   moveto <- v, v;
                   text <- k;
               }
 
-        }"#;
+        "#;
 
-        assert_statement(test, statement_block(vec!{
-            def("x", map(vec!{
-                (s("a"), Int(1)),
-                (s("b"), Int(2)),
-                (s("c"), Int(3))
-            })),
-            map_iter("k", "v", id("x"), statement_block(vec!{
-                emit("moveto", vec!{id("v"), id("v")}),
-                emit("text", vec!{id("k")})
-            }))
-        }));
+        assert_statement(test, map_iter("k", "v", id("x"), statement_block(vec!{
+            emit("moveto", vec!{id("v"), id("v")}),
+            emit("text", vec!{id("k")})
+        })));
     }
 
     #[test]
-    fn test_guard() {
+    fn test_if() {
         assert_statement(
-            "if a { text <- b; }",
+            "if (a) { text <- b; };",
             guard(
                 vec!{(id("a"), emit("text", vec!{id("b")}))},
                 None
             )
         );
+    }
 
+    #[test]
+    fn test_if_else() {
         assert_statement(
-            r#"if a { text <- b; } else { text <- "error"; }"#,
+            r#"if (a) { text <- b; } else { text <- "error"; };"#,
             guard(
                 vec!{(id("a"), emit("text", vec!{id("b")}))},
                 Some(emit("text", vec!{string("error")}))
             )
         );
+    }
 
+    #[test]
+    fn test_if_elif_else() {
         assert_statement(
-            r#"if a {
+            r#"if (a) {
                text <- "a";
-            } elif b {
+            } elif (b) {
                text <- "b";
             } else {
                text <- "error";
-            }"#,
+            };"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -390,15 +372,15 @@ mod tests {
         );
 
         assert_statement(
-            r#"if a {
+            r#"if (a) {
                text <- "a";
-            } elif b {
+            } elif (b) {
                text <- "b";
-            } elif c {
+            } elif (c) {
                text <- "c";
             } else {
                text <- "error";
-            }"#,
+            };"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -408,13 +390,16 @@ mod tests {
                 Some(emit("text", vec!{string("error")}))
             )
         );
+    }
 
+    #[test]
+    fn test_if_elif() {
         assert_statement(
-            r#"if a {
+            r#"if (a) {
                text <- "a";
-            } elif b {
+            } elif (b) {
                text <- "b";
-            }"#,
+            };"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -425,13 +410,13 @@ mod tests {
         );
 
         assert_statement(
-            r#"if a {
+            r#"if (a) {
                text <- "a";
-            } elif b {
+            } elif (b) {
                text <- "b";
-            } elif c {
+            } elif (c) {
                text <- "c";
-            }"#,
+            };"#,
             guard(
                 vec!{
                     (id("a"), emit("text", vec!{string("a")})),
@@ -496,7 +481,7 @@ mod tests {
     #[test]
     fn test_function_def() {
         assert_statement(
-            r#"func foo(y: Int) -> Int (4 * y)"#,
+            r#"func foo(y: Int) -> Int {yield 4 * y}"#,
             def(
                 "foo",
                 lambda(vec!{(s("y"), TypeTag::Int)},
