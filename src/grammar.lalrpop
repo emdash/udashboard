@@ -10,19 +10,14 @@ use std::str::FromStr;
 grammar;
 
 
-// Statement rules.
+// Statement entry point.
 pub Statement: ast::Statement = {
-    <name:Id> "<-" <exprs:ExprList> ";" => ast::emit(name.as_str(), exprs),
-    "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value),
-    <e: SimpleExpr> ";" => ast::expr_for_effect(e),
-    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block> =>
-        ast::def(name.as_str(), ast::lambda(args, ret, body)),
-    "proc" <name:Id> <args:Arglist> <body:Block> =>
-        ast::def(name.as_str(), ast::lambda(args, ast::TypeTag::Unit, body)),
-    "for" <name:Id> "in" <list:Expr> <body:Block> =>
-        ast::list_iter(name.as_str(), list, ast::expr_for_effect(body)),
-    "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Block> =>
-        ast::map_iter(key.as_str(), value.as_str(), map, ast::expr_for_effect(body)),
+    FuncDef,
+    ProcDef,
+    Effect,
+    Let,
+    EffectExpr,
+    Iteration,
 }
 
 
@@ -33,6 +28,7 @@ pub Expr: ast::Expr = {
 }
 
 
+// Type expression entry point.
 pub Type: ast::TypeTag = {
     "Bool" => ast::TypeTag::Bool,
     "Int" => ast::TypeTag::Int,
@@ -48,18 +44,56 @@ pub Type: ast::TypeTag = {
 }
 
 
+// Syntactic sugar for defining a function returning a value.
+FuncDef: ast::Statement =
+    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block>
+    => ast::def(name.as_str(), ast::lambda(args, ret, body));
+
+
+// Syntatic sugar for defining a function which returns no value.
+ProcDef: ast::Statement =
+    "proc" <name:Id> <args:Arglist> <body:Block>
+    => ast::def(name.as_str(), ast::lambda(args, ast::TypeTag::Unit, body));
+
+
+// Used for raw cairo operations.
+Effect: ast::Statement =
+    <name:Id> "<-" <exprs:ExprList> ";" => ast::emit(name.as_str(), exprs);
+
+
+// Bind a name to a value.
+Let: ast::Statement =
+    "let" <name:Id> "=" <value:Expr> ";" => ast::def(name.as_str(), value);
+
+
+// Evaluate the given expression for its side effects.
+EffectExpr: ast::Statement = <e: SimpleExpr> ";" => ast::expr_for_effect(e);
+
+
+// Iterate over a collection.
+Iteration: ast::Statement = {
+    "for" <name:Id> "in" <list:Expr> <body:Block> =>
+        ast::list_iter(name.as_str(), list, ast::expr_for_effect(body)),
+    "for" "(" <key:Id> "," <value:Id> ")" "in" <map:Expr> <body:Block> =>
+        ast::map_iter(key.as_str(), value.as_str(), map, ast::expr_for_effect(body)),
+}
+
+
+// Any expression which is not a Block.
+//
+// Needed to avoid the abiguity of nesting blocks.
 SimpleExpr: ast::Expr = {
     Lambda,
-    Guard,
+    Cond,
     Logic,
 }
 
 
-// An if-else chain for statements
-Guard: ast::Expr =
+// An if-else chain
+Cond: ast::Expr =
     "if"
-    <first:GuardClause>
-    <rest:("elif" <GuardClause>)*>
+    <first:CondClause>
+    <rest:("elif" <CondClause>)*>
     <default:("else" <Block>)?>
     => {
         let mut clauses = vec!{first};
@@ -70,25 +104,30 @@ Guard: ast::Expr =
 
 
 // Single clause in an if-else chain
-GuardClause: (ast::Expr, ast::Expr) = {
+CondClause: (ast::Expr, ast::Expr) = {
     "(" <pred: Expr> ")" <body: Block>
         => (pred, body),
 }
 
 
+// Single paramater in a function signature
 Param: (String, ast::TypeTag) =
     <name:Id> ":" <t:Type> => (name, t);
 
 
+// The argument list of a function signature
 Arglist: Vec<(String, ast::TypeTag)> =
     "(" <args:Comma<Param>> ")" => args;
 
 
+// An anonymous function expression.
 Lambda: ast::Expr = <args:Arglist> <ret:("->" <Type>)?> <body:Expr>
     => ast::lambda(args, ret.unwrap_or(ast::TypeTag::Unit), body);
 
-// A block expression must contain a single, trailing return statement
-// which will be the value of the block.
+
+// A sequence of statements treated as an expression.
+//
+// If the `yield` keyword is present, then this block has a value.
 Block: ast::Expr = {
     "{" <stmts:Statement+> <ret:("yield" <SimpleExpr>)?> "}"
         => ast::expr_block(stmts, ret.unwrap_or(ast::Expr::Unit)),
@@ -166,7 +205,7 @@ Selection: ast::Expr = {
 }
 
 
-// This is the level of literals of any type, including lambdas.
+// Literals of any type except lambdas.
 Term: ast::Expr = {
     Id => ast::Expr::Id(<>),
     Int => ast::Expr::Int(<>),
@@ -185,14 +224,15 @@ MapItem: (String, ast::Expr) = {
 }
 
 
-Int: i64 = r"-?[0-9]+" => i64::from_str(<>).unwrap();
-Float: f64 = r"-?[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap();
-Id: String = r"[A-Za-z_][A-Za-z0-9_]*" => <>.to_owned();
-Boolean: bool = {"true" => true, "false" => false};
-Str: String = <s:r#""(([^\\"]|\\.)*)""#> => s[1..(s.len() - 1)].to_string();
+// Any commma-separated list of values.
+ExprList = Comma<Expr>;
 
 
-// Factor out comma-separated lists of things.
+// So far only used in maps.
+MapItems = Comma<MapItem>;
+
+
+// Comma-separated lists of things.
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
         None => v,
@@ -205,22 +245,9 @@ Comma<T>: Vec<T> = {
 }
 
 
-// Semi-colon separated lists of things.
-Semicolon<T>: Vec<T> = {
-    <v:(<T> ";")*> <e:T?> => match e {
-        None => v,
-        Some(e) => {
-            let mut v = v;
-            v.push(e);
-            v
-        }
-    }
-}
-
-
-// Any commma-separated list of values.
-ExprList = Comma<Expr>;
-
-
-// So far only used in maps.
-MapItems = Comma<MapItem>;
+// Terminals
+Int: i64 = r"-?[0-9]+" => i64::from_str(<>).unwrap();
+Float: f64 = r"-?[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap();
+Id: String = r"[A-Za-z_][A-Za-z0-9_]*" => <>.to_owned();
+Boolean: bool = {"true" => true, "false" => false};
+Str: String = <s:r#""(([^\\"]|\\.)*)""#> => s[1..(s.len() - 1)].to_string();
