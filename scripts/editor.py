@@ -181,7 +181,6 @@ def frange(lower, upper, step):
 class VM(object):
     """Executes bytecode on the given cairo context."""
 
-    trace = Logger("VM:")
     joins = {
         "bevel": cairo.LINE_JOIN_BEVEL,
         "miter": cairo.LINE_JOIN_MITER,
@@ -193,21 +192,22 @@ class VM(object):
         "square": cairo.LINE_CAP_SQUARE
     }
 
-    def __init__(self, target, env={}, trace=False):
-        self.stack = {}
+    def __init__(self, target, env=None, trace=False):
+        self.stack = []
         self.lists = []
-        self.env = env
+        self.env = env if env is not None else {}
         self.target = target
+        self.trace = Logger("VM:")
         self.trace.enable = trace
 
     def run(self, program):
-        self.trace("PROG:", program)
+        self.trace("PROG:", program, self.env)
         for (pc, token) in enumerate(program):
             self.trace("PC:", "%3d %9s" % (pc, token))
-            self.execute(pc, token, program)
+            self.execute(token)
             self.trace("STAK:", "L:", self.stack, "R:", self.env)
 
-    def execute(self, pc, token, program):
+    def execute(self, token):
         if token == "[":
             self.trace("LIST")
             self.lists.append([])
@@ -225,8 +225,8 @@ class VM(object):
         elif token == "loop":
             self.trace("LOOP")
             # body, token are the tuples we push from ]
-            body = self.pop("do")
-            collection = self.pop("in")
+            body = self.pop()
+            collection = self.pop()
             for value in collection:
                 self.push(value)
                 self.run(body)
@@ -245,8 +245,8 @@ class VM(object):
             self.trace("PUSH")
             self.push(token)
 
-    def push(self, val, tag):
-        self.stack[tag] = val
+    def push(self, val):
+        self.stack.append(val)
 
     def peek(self, index=0):
         return self.stack[index]
@@ -254,10 +254,10 @@ class VM(object):
     def poke(self, value, index=0):
         self.stack[index] = value
 
-    def pop(self, slot):
-        try:
-            return self.stack.pop(slot)
-        except:
+    def pop(self):
+        if self.stack:
+            return self.stack.pop()
+        else:
             raise VMError("Stack underflow")
 
     # --- OPCODES
@@ -287,9 +287,13 @@ class VM(object):
     def define(self):
         body = self.pop()
         name = self.pop()
+        assert isinstance(body, list)
+        assert isinstance(name, str)
         self.env[name] = body
 
     def load(self):
+        self.name = self.pop()
+        assert isinstance(name, str)
         self.push(self.env[self.pop()])
 
     def range(self):
@@ -329,24 +333,18 @@ class VM(object):
 
     def circle(self):
         radius = self.pop()
-        if isinstance(self.peek(), Point):
-            (x, y) = self.pop()
-            self.target.arc(x, y, radius, 0, 2 * math.pi)
-        else:
-            raise VMError("type mismatch")
+        self.target.arc(0, 0, radius, 0, 2 * math.pi)
 
     def arc(self):
         end = self.pop()
         start = self.pop()
         radius = self.pop()
-        (x, y) = self.pop()
-        self.target.arc(x, y, radius, start, end)
+        self.target.arc(0, 0, radius, start, end)
 
     def rectangle(self):
         h = self.pop()
         w = self.pop()
-        (x, y) = self.pop()
-        self.target.rectangle(x - w * 0.5, y - h * 0.5, w, h)
+        self.target.rectangle(w * -0.5, h * -0.5, w, h)
 
     def moveto(self):
         (x, y) = self.pop()
@@ -418,6 +416,8 @@ class VM(object):
 
     def debug(self):
         print(self.stack)
+
+    ## end of opcodes
 
     opcodes = {
         "drop":      drop,
@@ -533,13 +533,14 @@ class EditorState(object):
     """Immutable representation of complete document state."""
 
     trace = Logger("EditorState:")
-    trace.enable = True
+    trace.enable = False
 
     def __init__(self, cursor, token, prog):
         self.trace("__init__:", cursor, token, prog)
         assert isinstance(cursor, Cursor)
         assert cursor.length <= len(prog)
         assert cursor.limit == len(prog)
+
         self.cursor = cursor
         # holds the token currently being edited.
         self.token = token
@@ -557,13 +558,15 @@ class EditorState(object):
         """Returns A blank document."""
         return EditorState(Cursor(0, 0, 0), '', [])
 
-    def update(self, cursor=None, token=None, prog=None):
-        """Set the cursor value without changing anything else"""
-        self.trace("update:", cursor, token, prog)
+    def update(self, cursor=None, token=None, prog=None, completions=None):
+        """Return a copy of self with given properties updated."""
+        self.trace("update:", cursor, token, prog, completions)
+
         return EditorState(
             cursor if cursor is not None else self.cursor,
             token if token is not None else self.token,
-            prog if prog is not None else self.prog)
+            prog if prog is not None else self.prog
+        )
 
     def push(self, char):
         """Append a character to the current token.
@@ -572,7 +575,8 @@ class EditorState(object):
         return EditorState(
             self.cursor,
             self.token + char,
-            list(self.prog))
+            list(self.prog),
+        )
 
     def pop(self):
         """Remove the last character from the current token.
@@ -617,7 +621,7 @@ class EditorState(object):
         else:
             next_ = ''
         prog.insert(self.cursor.left, token)
-        return EditorState(
+        return self.update(
             self.cursor.shift(1, limit=len(prog)), next_, prog)
 
     def delete(self):
@@ -695,6 +699,40 @@ class EditorState(object):
             except:
                 return self.token
 
+    def allowable(self):
+        """Return the opcodes which could be inserted at the given position."""
+
+        # return value
+        allowable = set()
+        illegal = {}
+
+        # Try inserting every possible opcode.
+        for token in VM.opcodes:
+            prog = self.update(token=token).insert().prog
+
+            # Create a lightweight surface. It's not clear to me if thi
+            scratch_surface = cairo.RecordingSurface(
+                cairo.Content.COLOR_ALPHA,
+                cairo.Rectangle(0, 0, 1024, 768)
+            )
+
+            try:
+                # Create a temporary VM instance and run to completion.
+
+                # XXX: If we could clone the context exactly, we could avoid
+                # having to re-run the entire program for each opcode.
+                temp = VM(cairo.Context(scratch_surface))
+                temp.run(prog)
+                allowable.add(token)
+            except BaseException as e:
+                tb = sys.exc_info()[2]
+                illegal[token] = e
+
+
+        return (allowable, illegal)
+
+import traceback
+
 class Editor(object):
 
     trace = Logger("Editor:")
@@ -712,18 +750,27 @@ class Editor(object):
             Gdk.KEY_Right: lambda: self.move_cursor(1)
         }
         self.update_cb = update_cb
+        self.allowable = []
+        self.update_allowable()
 
     def insert(self):
         self.trace("insert", self.state)
         self.state = self.state.insert()
+        self.update_allowable()
 
     def delete(self):
         self.trace("delete:", self.state)
         self.state = self.state.pop()
+        self.update_allowable()
 
     def move_cursor(self, dist):
         self.trace("move:", self.state)
         self.state = self.state.move(dist, False)
+        self.update_allowable()
+
+    def update_allowable(self):
+        self.allowable = list(self.state.allowable()[0])
+        self.allowable.sort()
 
     def token(self, cr, token, direction, fill=True):
         _, _, tw, _, _, _ = cr.text_extents(token)
@@ -807,8 +854,10 @@ class Editor(object):
         cr.restore()
 
         # draw top two numbers on stack
-        stack_nums = [i for i in reversed(vm.stack)
-                      if (isinstance(i, int) or isinstance(i, float))]
+        stack_nums = [
+            i for i in reversed(vm.stack)
+            if (isinstance(i, int) or isinstance(i, float))
+        ] if vm.stack else []
 
         if len(stack_nums) == 1:
             cr.move_to(stack_nums[0], -height / 2)
@@ -860,6 +909,13 @@ class Editor(object):
 
         cr.restore()
 
+        # draw the allowed commands for the current context
+        cr.save()
+        cr.translate(0, 10)
+        for item in self.allowable:
+            self.token(cr, str(item), direction)
+        cr.restore()
+
         # show textual stack, growing upward
         cr.translate(
             width - self.vm_gutter_width,
@@ -907,6 +963,7 @@ class Editor(object):
             print(env)
         else:
             print("unrecognized cmd", cmd)
+
 
 def gui():
     def dpi(widget):
