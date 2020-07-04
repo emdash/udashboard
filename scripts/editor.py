@@ -287,8 +287,8 @@ class VM(object):
     def min(self):  self.push(min(self.pop(), self.pop()))
 
     def define(self):
-        body = self.pop()
         name = self.pop()
+        body = self.pop()
         assert isinstance(body, list)
         assert isinstance(name, str)
         self.env[name] = body
