@@ -702,6 +702,15 @@ class EditorState(object):
             except:
                 return self.token
 
+    def insert_point(self, x, y):
+        return self\
+            .update(token=x)\
+            .insert()\
+            .update(token=y)\
+            .insert()\
+            .update(token="point")\
+            .insert()
+
     def allowable(self, env):
         """Determine which tokens can be inserted at the given position."""
 
