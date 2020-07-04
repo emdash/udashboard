@@ -233,8 +233,7 @@ class VM(object):
                 self.push(value)
                 self.run(body)
             return
-
-        if self.lists:
+        elif self.lists:
             self.trace("LIST")
             self.lists[-1].append(token)
         elif token in self.opcodes:
