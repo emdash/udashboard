@@ -771,7 +771,7 @@ class Editor(object):
         self.update_allowable()
 
     def update_allowable(self):
-        self.allowable = list(self.state.allowable()[0])
+        self.allowable = list(self.state.allowable(self.env)[0])
         self.allowable.sort()
 
     def token(self, cr, token, direction, fill=True):
@@ -799,6 +799,9 @@ class Editor(object):
 
         width, height = window_size
 
+        # cache environment, needed for computing allowable opcodes
+        self.env = env
+
         # prepare the transform matrix
         cr.save()
 
@@ -822,10 +825,11 @@ class Editor(object):
         # create a new vm instance with the window as the target.
         cr.save()
         try:
-            vm = VM(cr, env)
+            error = None
+            vm = VM(cr, env, False)
             vm.run(self.state.prog)
         except Exception as e:
-            print("err:", e)
+            error = e
         cr.restore()
 
         # save the current point
@@ -919,6 +923,7 @@ class Editor(object):
         cr.restore()
 
         # show textual stack, growing upward
+        cr.save()
         cr.translate(
             width - self.vm_gutter_width,
             height - self.code_gutter_height - 10)
@@ -926,6 +931,15 @@ class Editor(object):
             cr.move_to(0, 0)
             cr.show_text(repr(item))
             cr.translate(0, -10)
+        cr.restore()
+
+        # show the current vm error, if any
+        if error is not None:
+            _, _, tw, _, _, _ = cr.text_extents(repr(error))
+            cr.translate(0, height - self.code_gutter_height - 10)
+            cr.move_to(0, 0)
+            cr.show_text(repr(error))
+
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
