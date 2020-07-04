@@ -250,7 +250,7 @@ class VM(object):
         self.stack.append(val)
 
     def peek(self, index=0):
-        return self.stack[index]
+        return self.stack[-index]
 
     def poke(self, value, index=0):
         self.stack[index] = value
