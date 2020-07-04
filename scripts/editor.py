@@ -701,29 +701,43 @@ class EditorState(object):
             except:
                 return self.token
 
-    def allowable(self):
-        """Return the opcodes which could be inserted at the given position."""
+    def allowable(self, env):
+        """Determine which tokens can be inserted at the given position."""
 
         # return value
         allowable = set()
         illegal = {}
 
+        # Create a lightweight surface. It's not clear to me if this
+        # allows things that an ImageSurface wouldn't. But it should
+        # be faster to operate on this target surface, since it
+        # doesn't need to rasterize.
+        scratch_surface = cairo.RecordingSurface(
+            cairo.Content.COLOR_ALPHA,
+            cairo.Rectangle(0, 0, 1024, 768)
+        )
+
         # Try inserting every possible opcode.
         for token in VM.opcodes:
+            # Insert the opcode at the current editor position.
             prog = self.update(token=token).insert().prog
-
-            # Create a lightweight surface. It's not clear to me if thi
-            scratch_surface = cairo.RecordingSurface(
-                cairo.Content.COLOR_ALPHA,
-                cairo.Rectangle(0, 0, 1024, 768)
-            )
 
             try:
                 # Create a temporary VM instance and run to completion.
 
-                # XXX: If we could clone the context exactly, we could avoid
-                # having to re-run the entire program for each opcode.
-                temp = VM(cairo.Context(scratch_surface))
+                # XXX: If we could clone the context exactly, we could
+                # avoid having to re-run the entire program to test
+                # each opcode. We only really need to check the given
+                # opcode against the final stack and final context
+                # state, but since there's no way to copy the context,
+                # this is the only way to be sure.
+                #
+                # Something to investigate is whether it's faster to
+                # simply replay the recording surface, given that this
+                # would avoid interpreter overhead. But honestly, I
+                # care more that this gets the correct result without
+                # having to write a lot of code.
+                temp = VM(cairo.Context(scratch_surface), env)
                 temp.run(prog)
                 allowable.add(token)
             except BaseException as e:
@@ -733,7 +747,6 @@ class EditorState(object):
 
         return (allowable, illegal)
 
-import traceback
 
 class Editor(object):
 
@@ -753,7 +766,9 @@ class Editor(object):
         }
         self.update_cb = update_cb
         self.allowable = []
-        self.update_allowable()
+        # Annoyingly, we need to be realized to calculate the default env.
+        # self.update_allowable()
+        self.env = {}
 
     def insert(self):
         self.trace("insert", self.state)
