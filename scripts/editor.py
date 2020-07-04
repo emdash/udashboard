@@ -156,6 +156,7 @@ class Point(object):
     def __repr__(self):       return "(%g, %g)" % (self.x, self.y)
     def __iter__(self):       yield  self.x ; yield self.y
     def __hash__(self):       return hash((self.x, self.y))
+    def __bool__(self):       return False
 
     def binop(func):
         def impl(self, x):
