@@ -151,9 +151,11 @@ class Point(object):
 
     def __init__(self, x, y): self.x = x ; self.y = y
     def __len__(self):        return math.sqrt(self.x ** 2 + self.y ** 2)
-    def __eq__(self, o):      return (self.x, self.y) == (o.x, o.y)
+    def __eq__(self, o):
+        return isinstance(o, Point) and (self.x, self.y) == (o.x, o.y)
     def __repr__(self):       return "(%g, %g)" % (self.x, self.y)
     def __iter__(self):       yield  self.x ; yield self.y
+    def __hash__(self):       return hash((self.x, self.y))
 
     def binop(func):
         def impl(self, x):
