@@ -895,11 +895,11 @@ class Editor(object):
             cr.line_to(stack_nums[0],  height / 2)
             cr.stroke()
         elif len(stack_nums) == 2:
-            cr.move_to(-width / 2, stack_nums[1])
-            cr.line_to(width / 2,  stack_nums[1])
+            cr.move_to(-width / 2, stack_nums[0])
+            cr.line_to(width / 2,  stack_nums[0])
             cr.stroke()
-            cr.move_to(stack_nums[0], -height / 2)
-            cr.line_to(stack_nums[0],  height / 2)
+            cr.move_to(stack_nums[1], -height / 2)
+            cr.line_to(stack_nums[1],  height / 2)
             cr.stroke()
 
         # Draw UI layer, cmdline, and debug info.
