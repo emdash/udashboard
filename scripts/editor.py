@@ -264,9 +264,10 @@ class VM(object):
     # --- OPCODES
 
     def swap(self):
-        temp = self.peek(0)
-        self.poke(self.peek(1))
-        self.poke(temp, 1)
+        a = self.pop()
+        b = self.pop()
+        self.push(a)
+        self.push(b)
 
     def drop(self): self.pop()
     def dup(self):  self.push(self.peek(0))
