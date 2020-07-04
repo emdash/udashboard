@@ -1012,8 +1012,7 @@ def gui():
             "screen": [screen],
             "origin": [origin],
             "pi": [math.pi],
-            "radians": [2 * math.pi],
-            "degrees": [2 * math.pi / 360.0]
+            "degrees": [2 * math.pi / 360.0, '*']
         }
 
     def draw(widget, cr):
@@ -1121,6 +1120,7 @@ if __name__ == "__main__":
         Logger.enable = True
         test()
     elif len(sys.argv) > 1 and sys.argv[1] == "gui":
+        import traceback
         print("GUI")
         Logger.enable = False
         gui()
