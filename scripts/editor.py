@@ -970,7 +970,6 @@ class Editor(object):
         else:
             print("unhandled:")
         self.trace("exit:  handle_key:", self.state)
-        print(self.state)
         self.update_cb()
 
     def handle_cmd(self, cmd):
