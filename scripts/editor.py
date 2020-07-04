@@ -369,7 +369,7 @@ class VM(object):
         self.target.new_path()
 
     def subpath(self):
-        self.target.new_subpath()
+        self.target.new_sub_path()
 
     def source(self):
         self.target.set_source(self.pop())
