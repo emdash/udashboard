@@ -86,10 +86,14 @@ import cairo
 import math
 import threading
 from queue import Queue
+import re
 import sys
 
 class VMError(Exception): pass
 class LexError(Exception): pass
+
+
+point_re = re.compile(r"^\((-?\d+(\.\d+)?),(-?\d+(\.\d+)?)\)$")
 
 
 class Logger(object):
@@ -153,7 +157,7 @@ class Point(object):
     def __len__(self):        return math.sqrt(self.x ** 2 + self.y ** 2)
     def __eq__(self, o):
         return isinstance(o, Point) and (self.x, self.y) == (o.x, o.y)
-    def __repr__(self):       return "(%g, %g)" % (self.x, self.y)
+    def __repr__(self):       return "(%g,%g)" % (self.x, self.y)
     def __iter__(self):       yield  self.x ; yield self.y
     def __hash__(self):       return hash((self.x, self.y))
     def __bool__(self):       return False
@@ -593,7 +597,7 @@ class EditorState(object):
         if len(self.token) > 0:
             return EditorState(
                 self.cursor,
-                self.token[0:-1],
+                str(self.token[0:-1]),
                 self.prog)
         else:
             return self.delete()
@@ -694,22 +698,25 @@ class EditorState(object):
 
     def parse_token(self):
         self.trace("parse_token:", self)
+
+        try:
+            (x, y) = point_re.match(self.token).groups()[0::2]
+            return Point(float(x), float(y))
+        except:
+            pass
+
         try:
             return int(self.token)
         except:
-            try:
-                return float(self.token)
-            except:
-                return self.token
+            pass
+
+        try:
+            return float(self.token)
+        except:
+            return self.token
 
     def insert_point(self, x, y):
-        return self\
-            .update(token=x)\
-            .insert()\
-            .update(token=y)\
-            .insert()\
-            .update(token="point")\
-            .insert()
+        return self.update(token="(%g,%g)" % (x,y)).insert()
 
     def allowable(self, env):
         """Determine which tokens can be inserted at the given position."""
@@ -779,6 +786,7 @@ class Editor(object):
         # Annoyingly, we need to be realized to calculate the default env.
         # self.update_allowable()
         self.env = {}
+        self.transform = None
 
     def insert(self):
         self.trace("insert", self.state)
@@ -855,6 +863,8 @@ class Editor(object):
             vm.run(self.state.prog)
         except Exception as e:
             error = e
+        self.transform = cr.get_matrix()
+        self.transform.invert()
         cr.restore()
 
         # save the current point
@@ -982,6 +992,11 @@ class Editor(object):
         self.trace("exit:  handle_key:", self.state)
         self.update_cb()
 
+    def handle_button_press(self, event):
+        (x, y) = self.transform.transform_point(event.x, event.y)
+        self.state = self.state.insert_point(x, y)
+        self.update_cb()
+
     def handle_cmd(self, cmd):
         """Process the given string as a command."""
         if cmd == ":clr":
@@ -1038,6 +1053,9 @@ def gui():
     def key_press(widget, event):
         editor.handle_key_event(event)
 
+    def button_press(widget, event):
+        editor.handle_button_press(event)
+
     def update():
         da.queue_draw()
 
@@ -1051,6 +1069,7 @@ def gui():
     window.connect("destroy", Gtk.main_quit)
     da.connect('draw', draw)
     window.connect('key-press-event', key_press)
+    window.connect('button-press-event', button_press)
     Gtk.main()
 
 def test():
