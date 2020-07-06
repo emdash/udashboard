@@ -153,7 +153,7 @@ class Point(object):
 
     """Reasonably terse 2D Point class."""
 
-    def __init__(self, x, y): self.x = x ; self.y = y
+    def __init__(self, x, y): self.x = float(x) ; self.y = float(y)
     def __len__(self):        return math.sqrt(self.x ** 2 + self.y ** 2)
     def __eq__(self, o):
         return isinstance(o, Point) and (self.x, self.y) == (o.x, o.y)
@@ -175,6 +175,63 @@ class Point(object):
     __rmul__ = binop(lambda a, b: b * a)
     __truediv__  = binop(lambda a, b: a / b)
     __rtruediv__ = binop(lambda a, b: b / a)
+
+
+
+class Rect(object):
+
+    """Rectangle operations for layout."""
+
+    def __init__(self, center, width, height):
+        self.center = center
+        self.width = width
+        self.height = height
+
+    def __repr__(self):
+        return "(%s, %g, %g)" % (self.center, self.width, self.height)
+
+    def north(self):
+        return self.center - Point(0, 0.5 * self.height)
+
+    def south(self):
+        return self.center + Point(0, 0.5 * self.height)
+
+    def east(self):
+        return self.center - Point(0.5 * self.width, 0)
+
+    def west(self):
+        return self.center + Point(0.5 * self.width, 0)
+
+    def northwest(self):
+        return self.center + Point(-0.5 * self.width, -0.5 * self.height)
+
+    def northeast(self):
+        return self.center + Point(0.5 * self.width, -0.5 * self.height)
+
+    def southeast(self):
+        return self.center + Point(0.5 * self.width, 0.5 * self.height)
+
+    def southwest(self):
+        return self.center + Point(-0.5 * self.width, 0.5 * self.height)
+
+    def inset(self, size):
+        amount = size * 2
+        return Rect(self.center, self.width - amount, self.height - amount)
+
+    def split_left(self, pos):
+        return Rect(self.center - Point(pos, 0), pos, self.height)
+
+    def split_right(self, pos):
+        return Rect(self.center + Point(pos, 0), self.width - pos, self.height)
+
+    def split_top(self, pos):
+        return Rect(self.center - Point(0, pos), self.width, pos)
+
+    def split_bottom(self, pos):
+        return Rect(self.center + Point(0, pos), self.width, self.height - pos)
+
+    def radius(self):
+        return min(self.width, self.height) * 0.5
 
 
 def frange(lower, upper, step):
@@ -199,13 +256,14 @@ class VM(object):
         "square": cairo.LINE_CAP_SQUARE
     }
 
-    def __init__(self, target, env=None, trace=False):
+    def __init__(self, target, bounds, env=None, trace=False):
         self.stack = []
         self.lists = []
         self.env = env if env is not None else {}
         self.target = target
         self.trace = Logger("VM:")
         self.trace.enable = trace
+        self.layout_stack = [bounds]
 
     def run(self, program):
         self.trace("PROG:", program, self.env)
@@ -424,6 +482,65 @@ class VM(object):
     def debug(self):
         print(self.stack)
 
+    def bounds(self):
+        self.push(self.layout_stack[-1])
+
+    def center(self):
+        self.push(self.layout_stack[-1].center)
+
+    def top(self):
+        self.push(self.layout_stack[-1].north().y)
+
+    def bottom(self):
+        self.push(self.layout_stack[-1].south().y)
+
+    def left(self):
+        self.push(self.layout_stack[-1].west().x)
+
+    def right(self):
+        self.push(self.layout_stack[-1].east().x)
+
+    def width(self):
+        self.push(self.layout_stack[-1].width)
+
+    def height(self):
+        self.push(self.layout_stack[-1].height)
+
+    def north(self):
+        self.push(self.layout_stack[-1].north())
+
+    def south(self):
+        self.push(self.layout_stack[-1].south())
+
+    def east(self):
+        self.push(self.layout_stack[-1].east())
+
+    def west(self):
+        self.push(self.layout_stack[-1].west())
+
+    def northeast(self):
+        self.push(self.layout_stack[-1].northeast())
+
+    def southeast(self):
+        self.push(self.layout_stack[-1].southeast())
+
+    def northwest(self):
+        self.push(self.layout_stack[-1].northwest())
+
+    def southwest(self):
+        self.push(self.layout_stack[-1].southwest())
+
+    def inset(self):
+        size = self.pop()
+        self.layout_stack.append(self.layout_stack[-1].inset(size))
+
+    def radius(self):
+        self.push(max(0, self.layout_stack[-1].radius()))
+
+    def pop_bounds(self):
+        self.layout_stack.pop(-1)
+
+
     ## end of opcodes
 
     opcodes = {
@@ -470,7 +587,26 @@ class VM(object):
         "rotate":    rotate,
         "paint":     paint,
         ".":         disp,
-        "!":         debug
+        "!":         debug,
+        "bounds":    bounds,
+        "top":       top,
+        "bottom":    bottom,
+        "left":      left,
+        "right":     right,
+        "width":     width,
+        "height":    height,
+        "center":    center,
+        "north":     north,
+        "south":     south,
+        "east":      east,
+        "west":      west,
+        "northeast": northeast,
+        "southeast": southeast,
+        "northwest": northwest,
+        "southwest": southwest,
+        "inset":     inset,
+        "radius":    radius,
+        "pop":       pop_bounds
     }
 
 
@@ -701,7 +837,7 @@ class EditorState(object):
 
         try:
             (x, y) = point_re.match(self.token).groups()[0::2]
-            return Point(float(x), float(y))
+            return Point(x, y)
         except:
             pass
 
@@ -831,6 +967,11 @@ class Editor(object):
         self.trace("run:", self.state)
 
         width, height = window_size
+        content = Point(
+            width - self.vm_gutter_width,
+            height - self.code_gutter_height)
+        center = content * 0.5
+        bounds = Rect(Point(0, 0), content.x / scale.x, content.y / scale.y)
 
         # cache environment, needed for computing allowable opcodes
         self.env = env
@@ -846,9 +987,7 @@ class Editor(object):
             height - self.code_gutter_height)
         cr.clip()
 
-        cr.translate(
-            origin.x - self.vm_gutter_width,
-            origin.y - self.code_gutter_height)
+        cr.translate(center.x, center.y)
         cr.scale(scale.x, scale.y)
 
         # set default context state
@@ -859,7 +998,7 @@ class Editor(object):
         cr.save()
         try:
             error = None
-            vm = VM(cr, env, False)
+            vm = VM(cr, bounds, env, False)
             vm.run(self.state.prog)
         except Exception as e:
             error = e
@@ -1034,8 +1173,6 @@ def gui():
     def defenv(screen, origin):
         """Prepare the standard VM Environment."""
         return {
-            "screen": [screen],
-            "origin": [origin],
             "pi": [math.pi],
             "degrees": [2 * math.pi / 360.0, '*']
         }
