@@ -88,6 +88,7 @@ import threading
 from queue import Queue
 import re
 import sys
+import time
 
 class VMError(Exception): pass
 class LexError(Exception): pass
@@ -345,7 +346,10 @@ class VM(object):
         a = self.pop()
         self.push(a / b)
     def mul(self):  self.push(self.pop() * self.pop())
-    def mod(self):  self.push(self.pop() % self.pop())
+    def mod(self):
+        b = self.pop()
+        a = self.pop()
+        self.push(a % b)
     def max(self):  self.push(max(self.pop(), self.pop()))
     def min(self):  self.push(min(self.pop(), self.pop()))
 
@@ -540,6 +544,18 @@ class VM(object):
     def pop_bounds(self):
         self.layout_stack.pop(-1)
 
+    def sin(self):
+        self.push(math.sin(self.pop()))
+
+    def cos(self):
+        self.push(math.cos(self.pop()))
+
+    def abs(self):
+        self.push(math.abs(self.pop()))
+
+    def time(self):
+        self.push(time.time())
+
 
     ## end of opcodes
 
@@ -555,6 +571,9 @@ class VM(object):
         "%":         mod,
         "min":       min,
         "max":       max,
+        "abs":       abs,
+        "sin":       sin,
+        "cos":       cos,
         "define":    define,
         "load":      load,
         "range":     range,
@@ -606,7 +625,8 @@ class VM(object):
         "southwest": southwest,
         "inset":     inset,
         "radius":    radius,
-        "pop":       pop_bounds
+        "pop":       pop_bounds,
+        "time":      time,
     }
 
 
@@ -1174,7 +1194,7 @@ def gui():
         """Prepare the standard VM Environment."""
         return {
             "pi": [math.pi],
-            "degrees": [2 * math.pi / 360.0, '*']
+            "degrees": [2 * math.pi / 360.0, '*'],
         }
 
     def draw(widget, cr):
@@ -1194,8 +1214,12 @@ def gui():
         editor.handle_button_press(event)
 
     def update():
-        da.queue_draw()
+        try:
+            da.queue_draw()
+        finally:
+            return True
 
+    GObject.timeout_add(25, update)
 
     editor = Editor(update)
     window = Gtk.Window()
