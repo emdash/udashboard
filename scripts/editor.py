@@ -692,6 +692,12 @@ class Cursor(object):
         ntokens = max(0, min(self.limit, self.length))
         return Cursor(self.left, self.left, self.limit - ntokens)
 
+    def at_end(self):
+        return self.left == self.right == self.limit
+
+    def at_start(self):
+        return self.left == self.right == self.limit
+
     def __str__(self):
         return "Cursor(%d, %d, %d)" % (self.left, self.right, self.limit)
     def __repr__(self): return self.__str__()
