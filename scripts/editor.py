@@ -40,12 +40,9 @@ The basic idea is as follows:
   # enum(*values)
   # list(type)
   # tuple(*types)
-# - better feedback and reporting of vm errors
-# - allow a plain define that's just a lookup
 # - mouse click to set / update current point.
 # - mouse drag to set / update current point
 # - make points draggable with the mouse.
-# - redefinition should be an error
 
 # MISSING FEATURES
 # - save and load files (define header format)
@@ -272,55 +269,53 @@ class VM(object):
         "square": cairo.LINE_CAP_SQUARE
     }
 
-    def __init__(self, target, bounds, env=None, trace=False):
+    def __init__(self, target, bounds, trace=False):
         self.stack = []
-        self.lists = []
-        self.env = env if env is not None else {}
         self.target = target
         self.trace = Logger("VM:")
         self.trace.enable = trace
         self.layout_stack = [bounds]
+        self.debug_output = []
 
-    def run(self, program):
-        self.trace("PROG:", program, self.env)
-        for (pc, token) in enumerate(program):
-            self.trace("PC:", "%3d %9s" % (pc, token))
-            self.execute(token)
-            self.trace("STAK:", "L:", self.stack, "R:", self.env)
+    def run(self, program, target='main', env=None):
+        if env is None:
+            env = {}
+        local = {}
+        self.debug_output = []
+        self.trace("PROG:", program)
+        for token in program[target]:
+            self.execute(token, program, local, env)
 
-    def execute(self, token):
-        if token == "[":
-            self.trace("LIST")
-            self.lists.append([])
-            return
-        elif token == "]":
-            self.trace("LIST")
-            if len(self.lists) > 1:
-                nested = self.lists.pop()
-                self.lists[-1].append(nested)
-            elif len(self.lists) == 1:
-                self.push(self.lists.pop())
-            else:
-                raise VMError("Mismatched ]")
-            return
-        elif token == "loop":
+    def execute(self, token, program, local, env):
+        self.trace("EXEC:", token)
+        if token == "loop":
             self.trace("LOOP")
-            # body, token are the tuples we push from ]
             body = self.pop()
             collection = self.pop()
             for value in collection:
                 self.push(value)
                 self.run(body)
             return
-        elif self.lists:
-            self.trace("LIST")
-            self.lists[-1].append(token)
+        elif token == "define":
+            symbol = self.pop()
+            value = self.pop()
+            if (symbol in self.opcodes
+                or symbol in env
+                or symbol in program
+                or symbol in local
+            ):
+                raise VMError("Redefinition of symbol %s" % token)
+            else:
+                env[symbol] = value
         elif token in self.opcodes:
             self.trace("OPCD")
             self.opcodes[token](self)
-        elif token in self.env:
+        elif token in env:
+            self.trace("ENV")
+            self.push(env[token])
+        elif token in program:
             self.trace("FUNC")
-            self.run(self.env[token])
+            self.run(program, token)
         else:
             self.trace("PUSH")
             self.push(token)
@@ -496,10 +491,10 @@ class VM(object):
         self.target.paint()
 
     def disp(self):
-        print(self.pop())
+        self.debug_output.append(self.peek())
 
     def debug(self):
-        print(self.stack)
+        self.debug_output.append(self.stack)
 
     def bounds(self):
         self.push(self.layout_stack[-1])
@@ -645,301 +640,42 @@ class VM(object):
     }
 
 
-class Cursor(object):
+def compile(prog):
+    labels = {'main': []}
+    cur_label = labels['main']
+    cur_list = None
+    lists = []
 
-    """Represents an editable region of the document"""
-
-    trace = Logger("Cursor:")
-
-    def __init__(self, left, right, limit):
-        self.trace("__init__:", left, right, limit)
-        assert 0 <= left <= right <= limit
-        self.left = left
-        self.right = right
-        self.length = right - left
-        self.limit = limit
-
-    def clamp(self, left, right, limit):
-        length = right - left
-        ret = (
-            max(0, min(limit - length, left)),
-            max(length, min(limit, right)))
-        self.trace("clamp:", left, right, limit, length, ret)
-        # clamping should never change length of selection.
-        assert ret[1] - ret[0] == length
-        return ret
-
-    def shift(self, dist, limit=None):
-        limit = limit if limit is not None else self.limit
-        self.trace("shift:", dist, limit, self)
-        left, right = self.clamp(
-            self.left + dist,
-            self.right + dist,
-            limit)
-        return Cursor(
-            left,
-            right,
-            limit)
-
-    def set_size(self, size, side, limit=None):
-        limit = limit if limit else self.limit
-        self.trace("set_size:", size, side, limit, self)
-
-        assert size >= 0
-
-        if side < 0:
-            (left, right) = (self.left, self.left + size)
-        else:
-            (left, right) = (self.right - size, self.right)
-
-        (left, right) = self.clamp(left, right, limit)
-        return Cursor(left, right, limit)
-
-    def delete(self):
-        ntokens = max(0, min(self.limit, self.length))
-        return Cursor(self.left, self.left, self.limit - ntokens)
-
-    def at_end(self):
-        return self.left == self.right == self.limit
-
-    def at_start(self):
-        return self.left == self.right == self.limit
-
-    def __str__(self):
-        return "Cursor(%d, %d, %d)" % (self.left, self.right, self.limit)
-    def __repr__(self): return self.__str__()
-    def __eq__(self, o):
-        return (self.left, self.right, self.limit) == (o.left, o.right, o.limit)
-
-
-class EditorState(object):
-
-    """Immutable representation of complete document state."""
-
-    trace = Logger("EditorState:")
-    trace.enable = False
-
-    def __init__(self, cursor, token, prog):
-        self.trace("__init__:", cursor, token, prog)
-        assert isinstance(cursor, Cursor)
-        assert cursor.length <= len(prog)
-        assert cursor.limit == len(prog)
-
-        self.cursor = cursor
-        # holds the token currently being edited.
-        self.token = token
-        # the entire program, so far.
-        self.prog = prog
-
-    def __str__(self):
-        return "State(%r, %r, %r)" % (self.cursor, self.token, self.prog)
-
-    def __repr__(self):
-        return self.__str__()
-
-    @classmethod
-    def empty(cls):
-        """Returns A blank document."""
-        return EditorState(Cursor(0, 0, 0), '', [])
-
-    def update(self, cursor=None, token=None, prog=None, completions=None):
-        """Return a copy of self with given properties updated."""
-        self.trace("update:", cursor, token, prog, completions)
-
-        return EditorState(
-            cursor if cursor is not None else self.cursor,
-            token if token is not None else self.token,
-            prog if prog is not None else self.prog
-        )
-
-    def push(self, char):
-        """Append a character to the current token.
-        """
-        self.trace("push_char:", self, char)
-        return EditorState(
-            self.cursor,
-            self.token + char,
-            list(self.prog),
-        )
-
-    def pop(self):
-        """Remove the last character from the current token.
-
-        If the token is empty, if the selection is nonempty, deletes the
-        selection. If the selection is empty, deletes the character
-        behind the selection.
-        """
-        self.trace("pop_char:", self)
-
-        if len(self.token) > 0:
-            return EditorState(
-                self.cursor,
-                str(self.token[0:-1]),
-                self.prog)
-        else:
-            return self.delete()
-
-    def insert(self):
-        """Commit the current token to the document, at the cursor location.
-
-        Has no effect if token is empty.
-
-        If the current cursor spreads across tokens, the effect is of
-        replacing the selection with the current token. Otherwise the
-        token is inserted.
-        """
-        self.trace("insert_token:", self)
-
-        if not self.token:
-            return self
-
-        token = self.parse_token()
-
-        # always remember to copy the program before mutating it.
-        # in Rust we could enforce this automatically.
-        prog = list(self.prog)
-
-        if self.cursor.length > 0:
-            del prog[self.cursor.left:self.cursor.right]
-            next_ = str(token)
-        else:
-            next_ = ''
-        prog.insert(self.cursor.left, token)
-        return self.update(
-            self.cursor.shift(1, limit=len(prog)), next_, prog)
-
-    def delete(self):
-        self.trace("delete:", self)
-        """Remove tokens spanned by the cursor from the document.
-
-        If cursor spans exactly one token, token is set to the deleted
-        token. Otherwise it is cleared.
-
-        Has no effect if program or cursor is empty.
-        """
-
-        if not self.cursor.length:
-            return self.move(-1, False)
-
-        if not len(self.prog):
-            return self
-
-        prog = list(self.prog)
-        del prog[self.cursor.left:self.cursor.right]
-        return self.update(self.cursor.delete(), prog=prog)
-
-    def move(self, direction, shift):
-        """Move the cursor forward or backward.
-        Has no effect if the program length is 0.
-
-        Only the sign of direction is considered, with negative
-        meaning left.
-
-        If shift is true, both ends of the cursor are shifted,
-        preserving the length of the selection. If preserve is false,
-        the selection is collapsed as follows:
-           - if selection length is > 1 cell, collapses to one cell
-           - if selection length is 1, collapses to empty cell
-           - if selection length is 0, surrounds the next cell
-
-        If shift is true, token is cleared.  If shift is false, token
-        is set to the surrounded token, which may be empty.
-        """
-        self.trace("move:", self, direction, shift)
-
-        # if we're already at the limit, this is a no-op
-        if direction < 0:
-            if 0 == self.cursor.left == self.cursor.right:
-                return self
-        else:
-            if self.cursor.left == self.cursor.right == self.cursor.limit:
-                return self
-
-        if shift:
-            cursor = self.cursor.shift(direction)
-        elif self.cursor.length == 0:
-            if direction < 0:
-                cursor = self.cursor.shift(-1).set_size(1, direction)
-            else:
-                cursor = self.cursor.shift(1).set_size(1, direction)
-        elif self.cursor.length == 1:
-            cursor = self.cursor.set_size(0, direction)
-        else:
-            cursor = self.cursor.set_size(1, direction)
-
-        if cursor.length == 1:
-            token = str(self.prog[cursor.left])
-        else:
-            token = ''
-        return self.update(cursor, token)
-
-    def parse_token(self):
-        self.trace("parse_token:", self)
-
+    def parse(token):
         try:
-            (x, y) = point_re.match(self.token).groups()[0::2]
-            return Point(x, y)
+            return int(token)
         except:
-            pass
-
-        try:
-            return int(self.token)
-        except:
-            pass
-
-        try:
-            return float(self.token)
-        except:
-            return self.token
-
-    def insert_point(self, x, y):
-        return self.update(token="(%g,%g)" % (x,y)).insert()
-
-    def allowable(self, env):
-        """Determine which tokens can be inserted at the given position."""
-
-        # return value
-        allowable = set()
-        illegal = {}
-
-        # Create a lightweight surface. It's not clear to me if this
-        # allows things that an ImageSurface wouldn't. But it should
-        # be faster to operate on this target surface, since it
-        # doesn't need to rasterize.
-        scratch_surface = cairo.RecordingSurface(
-            cairo.Content.COLOR_ALPHA,
-            cairo.Rectangle(0, 0, 1024, 768)
-        )
-
-        # Try inserting every possible opcode.
-        for token in VM.opcodes:
-            # Insert the opcode at the current editor position.
-            prog = self.update(token=token).insert().prog
-
             try:
-                # Create a temporary VM instance and run to completion.
+                return float(token)
+            except:
+                return token
 
-                # XXX: If we could clone the context exactly, we could
-                # avoid having to re-run the entire program to test
-                # each opcode. We only really need to check the given
-                # opcode against the final stack and final context
-                # state, but since there's no way to copy the context,
-                # this is the only way to be sure.
-                #
-                # Something to investigate is whether it's faster to
-                # simply replay the recording surface, given that this
-                # would avoid interpreter overhead. But honestly, I
-                # care more that this gets the correct result without
-                # having to write a lot of code.
-                temp = VM(cairo.Context(scratch_surface), env)
-                temp.run(prog)
-                allowable.add(token)
-            except BaseException as e:
-                tb = sys.exc_info()[2]
-                illegal[token] = e
+    for token in prog:
+        if token.endswith(":"):
+            label = token[:-1]
+            if label in labels:
+                raise VMError("Redefinition of %s" % label)
+            else:
+                cur_label = labels[label] = []
+        elif token == "[":
+            if cur_list:
+                lists.append(cur_list)
+            cur_list = []
+        elif token == "]":
+            cur_label.append(cur_list)
+            cur_list = lists.pop()
+        else:
+            if cur_list:
+                cur_list.append(parse(token))
+            else:
+                cur_label.append(parse(token))
 
-
-        return (allowable, illegal)
+    return labels
 
 
 class Save(object):
@@ -975,6 +711,24 @@ class Subdivide(object):
         self.cr.restore()
 
 
+class EditorState(object):
+
+    def __init__(self, path):
+        self.path = path
+        self.prog = None
+        self.load()
+
+    def load(self):
+        prog = []
+        for line in open(self.path, "r"):
+            for token in line.split():
+                prog.append(token.strip())
+
+        self.prog = compile(prog)
+        print(self.prog)
+
+
+
 class Editor(object):
 
     trace = Logger("Editor:")
@@ -984,7 +738,7 @@ class Editor(object):
     token_length = 55.0
 
     def __init__(self, update_cb):
-        self.state = EditorState.empty()
+        self.state = EditorState('image.dat')
         self.char_map = {
             Gdk.KEY_BackSpace: self.delete,
             Gdk.KEY_space: self.insert,
@@ -1047,7 +801,7 @@ class Editor(object):
             self.text(cr, token)
         return (rect.width, rect.height)
 
-    def run(self, cr, env, origin, scale, window_size):
+    def run(self, cr, origin, scale, window_size):
         self.trace("run:", self.state)
 
         window = Rect.from_top_left(Point(0, 0), window_size.x, window_size.y)
@@ -1066,8 +820,6 @@ class Editor(object):
         cr.set_line_width(1.0)
 
         bounds = Rect(Point(0, 0), content.width / scale.x, content.height / scale.y)
-        # cache environment, needed for computing allowable opcodes
-        self.env = env
 
         with Subdivide(cr, content):
             cr.scale(scale.x, scale.y)
@@ -1075,10 +827,12 @@ class Editor(object):
             # create a new vm instance with the window as the target.
             try:
                 error = None
-                vm = VM(cr, bounds, env, False)
+                vm = VM(cr, bounds, False)
                 vm.run(self.state.prog)
-            except Exception as e:
-                error = e
+            #except Exception as e:
+            #    error = e
+            finally:
+                pass
 
             self.transform = cr.get_matrix()
             self.inverse_transform = cr.get_matrix()
@@ -1141,33 +895,27 @@ class Editor(object):
             cr.rel_line_to(0, -code_gutter.height)
             cr.stroke()
 
-        # draw the visible region of the bytecode.
-        with Subdivide(cr, code_gutter) as bounds:
-            cursor = self.state.cursor
+        # # draw the visible region of the bytecode.
+        # with Subdivide(cr, code_gutter) as bounds:
 
-            if cursor.length <= 1:
-                selected = [self.state.token]
-            else:
-                selected = self.state.prog[cursor.left:cursor.right]
+        #     with Save(cr):
+        #         h = 0
+        #         for token in selected:
+        #             _, height = self.token(cr, str(token), False)
+        #             cr.translate(0, height + 5)
+        #             h += height + 10
 
-            with Save(cr):
-                h = 0
-                for token in selected:
-                    _, height = self.token(cr, str(token), False)
-                    cr.translate(0, height + 5)
-                    h += height + 10
+        #     with Save(cr):
+        #         cr.translate(0.0, -h / 2.0 - 5.0)
+        #         for token in reversed(self.state.prog[:cursor.left]):
+        #             _, height = self.token(cr, str(token))
+        #             cr.translate(0.0, -(height + 5))
 
-            with Save(cr):
-                cr.translate(0.0, -h / 2.0 - 5.0)
-                for token in reversed(self.state.prog[:cursor.left]):
-                    _, height = self.token(cr, str(token))
-                    cr.translate(0.0, -(height + 5))
-
-            with Save(cr):
-                cr.translate(0.0, h / 2.0 + 5.0)
-                for token in self.state.prog[cursor.right:]:
-                    _, height = self.token(cr, str(token))
-                    cr.translate(0.0, height + 5)
+        #     with Save(cr):
+        #         cr.translate(0.0, h / 2.0 + 5.0)
+        #         for token in self.state.prog[cursor.right:]:
+        #             _, height = self.token(cr, str(token))
+        #             cr.translate(0.0, height + 5)
 
         # with Subdivide(cr, window) as bounds:
         #     # draw the allowed commands for the current context
@@ -1192,24 +940,10 @@ class Editor(object):
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
-        self.handle_key(event.keyval)
-
-    def handle_key(self, key):
-        self.trace("enter: handle_key:", self.state, key)
-        if key in self.char_map:
-            self.char_map[key]()
-        elif 0 <= key <= 255:
-            self.trace("key:", chr(key))
-            self.state = self.state.push(chr(key))
-        else:
-            print("unhandled:")
-        self.trace("exit:  handle_key:", self.state)
-        self.update_cb()
+        self.state.load()
 
     def handle_button_press(self, event):
-        (x, y) = self.inverse_transform.transform_point(event.x, event.y)
-        self.state = self.state.insert_point(x, y)
-        self.update_cb()
+        self.state.load()
 
     def handle_cmd(self, cmd):
         """Process the given string as a command."""
@@ -1245,13 +979,6 @@ def gui():
         size = Point(float(geom.width), float(geom.height))
         return size / mm
 
-    def defenv(screen, origin):
-        """Prepare the standard VM Environment."""
-        return {
-            "pi": [math.pi],
-            "degrees": [2 * math.pi / 360.0, '*'],
-        }
-
     def draw(widget, cr):
         # get window / screen geometry
         alloc = widget.get_allocation()
@@ -1260,7 +987,7 @@ def gui():
         scale = dpi(widget)
 
         # excute the program
-        editor.run(cr, defenv(screen, origin), origin, scale, screen)
+        editor.run(cr, origin, scale, screen)
 
     def key_press(widget, event):
         editor.handle_key_event(event)
@@ -1289,95 +1016,8 @@ def gui():
     window.connect('button-press-event', button_press)
     Gtk.main()
 
-def test():
-    def case(c, cursor, token, prog):
-        if isinstance(c, str):
-            kv = ord(c)
-        else:
-            kv = c
-        e.handle_key(kv)
-        l, r, ll = cursor
-        try:
-            assert e.state.cursor == Cursor(l, r, ll)
-            assert e.state.token == token
-            assert e.state.prog == prog
-        except AssertionError as err:
-            print(e.state, "!=", cursor, token, prog)
-            raise err
-
-    assert Cursor(0, 0, 0) == Cursor(0, 0, 0)
-    assert Cursor(0, 1, 1) == Cursor(0, 1, 1)
-    assert Cursor(0, 0, 1) != Cursor(0, 0, 2)
-    assert Cursor(1, 1, 1) == Cursor(1, 1, 1)
-
-    e = Editor(lambda: None)
-    case('f',               (0, 0, 0),  'f',    [])
-    case('o',               (0, 0, 0),  'fo',   [])
-    case('o',               (0, 0, 0),  'foo',  [])
-    case(Gdk.KEY_space,     (1, 1, 1),  '',     ['foo'])
-    case(Gdk.KEY_space,     (1, 1, 1),  '',     ['foo'])
-    case(Gdk.KEY_Left,      (0, 1, 1),  'foo',  ['foo'])
-    case(Gdk.KEY_Left,      (0, 0, 1),  '',     ['foo'])
-    case(Gdk.KEY_Right,     (0, 1, 1),  'foo',  ['foo'])
-    case(Gdk.KEY_Right,     (1, 1, 1),  '',     ['foo'])
-    case('b',               (1, 1, 1),  'b',    ['foo'])
-    case('a',               (1, 1, 1),  'ba',   ['foo'])
-    case('r',               (1, 1, 1),  'bar',  ['foo'])
-    case(Gdk.KEY_space,     (2, 2, 2),  '',     ['foo', 'bar'])
-    case('0',               (2, 2, 2),  '0',    ['foo', 'bar'])
-    case(Gdk.KEY_Return,    (3, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (2, 3, 3),  '0',    ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (2, 3, 3),  '0',    ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (2, 2, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (1, 2, 3),  'bar',  ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (1, 1, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (0, 1, 3),  'foo',  ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (0, 0, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Left,      (0, 0, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (0, 1, 3),  'foo',  ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (1, 1, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (1, 2, 3),  'bar',  ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (2, 2, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (2, 3, 3),  '0',    ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_Right,     (3, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_BackSpace, (2, 3, 3),  '0',    ['foo', 'bar', 0])
-    case(Gdk.KEY_BackSpace, (2, 3, 3),  '',     ['foo', 'bar', 0])
-    case(Gdk.KEY_BackSpace, (2, 2, 2),  '',     ['foo', 'bar'])
-    case(Gdk.KEY_Left,      (1, 2, 2),  'bar',  ['foo', 'bar'])
-    case(Gdk.KEY_Left,      (1, 1, 2),  '',     ['foo', 'bar'])
-    case(Gdk.KEY_Right,     (1, 2, 2),  'bar',  ['foo', 'bar'])
-    case(Gdk.KEY_Right,     (2, 2, 2),  '',     ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 2, 2),  'bar',  ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 2, 2),  'ba',   ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 2, 2),  'b',    ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 2, 2),  '',     ['foo', 'bar'])
-    case(Gdk.KEY_BackSpace, (1, 1, 1),  '',     ['foo'])
-    case(Gdk.KEY_BackSpace, (0, 1, 1),  'foo',  ['foo'])
-    case(Gdk.KEY_BackSpace, (0, 1, 1),  'fo',   ['foo'])
-    case(Gdk.KEY_BackSpace, (0, 1, 1),  'f',    ['foo'])
-    case(Gdk.KEY_BackSpace, (0, 1, 1),  '',     ['foo'])
-    case(Gdk.KEY_BackSpace, (0, 0, 0),  '',     [])
-
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) >1 and sys.argv[1] == "test":
-        Logger.enable = True
-        test()
-    elif len(sys.argv) > 1 and sys.argv[1] == "gui":
-        import traceback
-        print("GUI")
-        Logger.enable = False
-        gui()
-    else:
-        while True:
-            print(handle_input(raw_input("> ")))
-
-            continue
-            env = {
-                "screen": [200, 200, "point"],
-                "origin": [0, 0, "point"]
-            }
-            vm = VM(None, env, trace=True)
-            vm.run(prog)
+    import traceback
+    print("GUI")
+    Logger.enable = False
+    gui()

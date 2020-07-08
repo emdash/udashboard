@@ -1,56 +1,19 @@
-radius
-[
-origin
-unpack
-min
-]
-define
-cc
-[
-0
-0
-point
-swap
-circle
-]
-define
-radius
-10
--
-cc
-stroke
-radius
-5.0
--
-cc
-stroke
-tick
-[
-2
-pi
-*
-*
-rotate
-radius
-5
--
-0
-point
-moveto
-radius
-5
--
-0
-point
-lineto
-stroke
-]
-define
-0
-1
-0.125
-range
-[
-tick
-]
-loop
+face
+
+eye:
+        10 20 elipse fill
+        5 10 point translate
+        5 10 elipse fill
+
+face:
+        -10 0 eye
+        10 0 eye
+
+elipse:
+        save
+        y define
+        x define
+        x y min rad define
+        x rad / y rad / scale
+        rad circle
+        restore
