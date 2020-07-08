@@ -229,8 +229,9 @@ class Rect(object):
     def split_left(self, pos):
         return self.from_top_left(self.northwest(), pos, self.height)
 
-    # def split_right(self, pos):
-    #     return self.from_top_left(self.northeast() - Point(, self.width - pos, self.height)
+    def split_right(self, pos):
+        tl = self.northwest() + Point(pos, 0)
+        return self.from_top_left(tl, self.width - pos, self.height)
 
     def split_top(self, pos):
         return self.from_top_left(self.northwest(), self.width, pos)
@@ -238,6 +239,12 @@ class Rect(object):
     def split_bottom(self, pos):
         tl = self.northwest() + Point(0, pos)
         return self.from_top_left(tl, self.width, self.height - pos)
+
+    def split_vertical(self, pos):
+        return (self.split_left(pos), self.split_right(pos))
+
+    def split_horizontal(self, pos):
+        return (self.split_top(pos), self.split_bottom(pos))
 
     def radius(self):
         return min(self.width, self.height) * 0.5
@@ -959,9 +966,9 @@ class Subdivide(object):
 
     def __enter__(self):
         self.cr.save()
-        self.cr.translate(*self.center)
         self.cr.rectangle(self.x, self.y, self.width, self.height)
-        # self.cr.clip()
+        self.cr.clip()
+        self.cr.translate(*self.center)
         return self.bounds
 
     def __exit__(self, unused1, unused2, unused3):
@@ -971,8 +978,9 @@ class Subdivide(object):
 class Editor(object):
 
     trace = Logger("Editor:")
-    code_gutter_height = 20.5
+    status_bar_height = 20.5
     vm_gutter_width = 125.5
+    code_gutter_width = 125.5
     token_length = 55.0
 
     def __init__(self, update_cb):
@@ -981,8 +989,8 @@ class Editor(object):
             Gdk.KEY_BackSpace: self.delete,
             Gdk.KEY_space: self.insert,
             Gdk.KEY_Return: self.insert,
-            Gdk.KEY_Left: lambda: self.move_cursor(-1),
-            Gdk.KEY_Right: lambda: self.move_cursor(1)
+            Gdk.KEY_Up: lambda: self.move_cursor(-1),
+            Gdk.KEY_Down: lambda: self.move_cursor(1)
         }
         self.update_cb = update_cb
         self.allowable = []
@@ -1027,7 +1035,7 @@ class Editor(object):
     def token(self, cr, token, fill=True):
         _, _, tw, _, _, _ = cr.text_extents(token)
         th = 10
-        rect = Rect(Point(0, 0), tw, th).inset(-2.5)
+        rect = Rect(Point(0, 0), self.code_gutter_width - 5.0, th + 5.0)
         with Save(cr):
             self.rect(cr, rect)
             cr.set_source_rgb(0.5, 0.5, 0.5)
@@ -1044,18 +1052,14 @@ class Editor(object):
 
         window = Rect.from_top_left(Point(0, 0), window_size.x, window_size.y)
 
-        content = window\
-            .split_top(window.height - self.code_gutter_height)\
-            .split_left(window.width - self.vm_gutter_width)
+        (remainder, status_bar) = window\
+            .split_horizontal(window.height - self.status_bar_height)
 
-        code_gutter = window\
-            .split_bottom(window.height - self.code_gutter_height)
+        (remainder, vm_gutter) = remainder\
+            .split_vertical(window.width - self.vm_gutter_width)
 
-        vm_gutter = Rect.from_top_left(
-            content.northeast(),
-            self.vm_gutter_width,
-            content.height
-        )
+        (code_gutter, content) = remainder\
+            .split_vertical(self.code_gutter_width)
 
         # set default context state
         cr.set_source_rgb(0, 0, 0)
@@ -1129,10 +1133,12 @@ class Editor(object):
         # draw gutters around UI
         with Save(cr):
             cr.set_line_width(1.0)
-            cr.move_to(*content.southwest())
+            cr.move_to(*code_gutter.southwest())
             cr.rel_line_to(window.width, 0)
             cr.move_to(*vm_gutter.northwest())
             cr.line_to(*vm_gutter.southwest())
+            cr.move_to(*code_gutter.southeast())
+            cr.rel_line_to(0, -code_gutter.height)
             cr.stroke()
 
         # draw the visible region of the bytecode.
@@ -1145,23 +1151,23 @@ class Editor(object):
                 selected = self.state.prog[cursor.left:cursor.right]
 
             with Save(cr):
-                w = 0
+                h = 0
                 for token in selected:
-                    (width, _) = self.token(cr, str(token), False)
-                    cr.translate(width + 5.0, 0.0)
-                    w += width + 10.0
+                    _, height = self.token(cr, str(token), False)
+                    cr.translate(0, height + 5)
+                    h += height + 10
 
             with Save(cr):
-                cr.translate(-w / 2.0 - 5.0, 0.0)
+                cr.translate(0.0, -h / 2.0 - 5.0)
                 for token in reversed(self.state.prog[:cursor.left]):
-                    (width, height) = self.token(cr, str(token))
-                    cr.translate(-(width + 5.0), 0.0)
+                    _, height = self.token(cr, str(token))
+                    cr.translate(0.0, -(height + 5))
 
             with Save(cr):
-                cr.translate(w / 2.0 + 5.0, 0.0)
+                cr.translate(0.0, h / 2.0 + 5.0)
                 for token in self.state.prog[cursor.right:]:
-                    (width, height) = self.token(cr, str(token))
-                    cr.translate(width + 5.0, 0.0)
+                    _, height = self.token(cr, str(token))
+                    cr.translate(0.0, height + 5)
 
         # with Subdivide(cr, window) as bounds:
         #     # draw the allowed commands for the current context
