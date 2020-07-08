@@ -188,20 +188,27 @@ class Rect(object):
         self.width = width
         self.height = height
 
+    @classmethod
+    def from_top_left(self, top_left, width, height):
+        return Rect(
+            Point(top_left.x + width * 0.5, top_left.y + height * 0.5),
+            width, height
+        )
+
     def __repr__(self):
         return "(%s, %g, %g)" % (self.center, self.width, self.height)
 
     def north(self):
-        return self.center - Point(0, 0.5 * self.height)
+        return self.center + Point(0, -0.5 * self.height)
 
     def south(self):
         return self.center + Point(0, 0.5 * self.height)
 
     def east(self):
-        return self.center - Point(0.5 * self.width, 0)
+        return self.center + Point(0.5 * self.width, 0)
 
     def west(self):
-        return self.center + Point(0.5 * self.width, 0)
+        return self.center + Point(-0.5 * self.width, 0)
 
     def northwest(self):
         return self.center + Point(-0.5 * self.width, -0.5 * self.height)
@@ -220,16 +227,17 @@ class Rect(object):
         return Rect(self.center, self.width - amount, self.height - amount)
 
     def split_left(self, pos):
-        return Rect(self.center - Point(pos, 0), pos, self.height)
+        return self.from_top_left(self.northwest(), pos, self.height)
 
-    def split_right(self, pos):
-        return Rect(self.center + Point(pos, 0), self.width - pos, self.height)
+    # def split_right(self, pos):
+    #     return self.from_top_left(self.northeast() - Point(, self.width - pos, self.height)
 
     def split_top(self, pos):
-        return Rect(self.center - Point(0, pos), self.width, pos)
+        return self.from_top_left(self.northwest(), self.width, pos)
 
     def split_bottom(self, pos):
-        return Rect(self.center + Point(0, pos), self.width, self.height - pos)
+        tl = self.northwest() + Point(0, pos)
+        return self.from_top_left(tl, self.width, self.height - pos)
 
     def radius(self):
         return min(self.width, self.height) * 0.5
@@ -921,11 +929,44 @@ class EditorState(object):
         return (allowable, illegal)
 
 
+class Save(object):
+
+    def __init__(self, cr):
+        self.cr = cr
+
+    def __enter__(self):
+        self.cr.save()
+
+    def __exit__(self, unused1, unused2, unused3):
+        self.cr.restore()
+
+
+class Subdivide(object):
+
+    def __init__(self, cr, bounds):
+        self.cr = cr
+        self.center = bounds.center
+        self.bounds = Rect(Point(0, 0), bounds.width, bounds.height)
+        (self.x, self.y) = bounds.northwest()
+        self.width = bounds.width
+        self.height = bounds.height
+
+    def __enter__(self):
+        self.cr.save()
+        self.cr.translate(*self.center)
+        self.cr.rectangle(self.x, self.y, self.width, self.height)
+        # self.cr.clip()
+        return self.bounds
+
+    def __exit__(self, unused1, unused2, unused3):
+        self.cr.restore()
+
+
 class Editor(object):
 
     trace = Logger("Editor:")
     code_gutter_height = 20.5
-    vm_gutter_width = 50.5
+    vm_gutter_width = 125.5
     token_length = 55.0
 
     def __init__(self, update_cb):
@@ -963,176 +1004,178 @@ class Editor(object):
         self.allowable = list(self.state.allowable(self.env)[0])
         self.allowable.sort()
 
-    def token(self, cr, token, direction, fill=True):
+    def text(self, cr, text):
+        """Draw text centered at (0, 0)"""
+        _, _, tw, th, _, _ = cr.text_extents(text)
+        with Save(cr):
+            cr.move_to(-tw / 2, th / 2)
+            cr.show_text(text)
+            return (tw, th)
+
+    def rect(self, cr, rect):
+        """Place the given rect into the path"""
+        with Save(cr):
+            (x, y) = rect.northwest()
+            cr.rectangle(x, y, rect.width, rect.height)
+
+    def token(self, cr, token, fill=True):
         _, _, tw, _, _, _ = cr.text_extents(token)
-        width = tw + 10
-
-        if direction.x < 0:
-            cr.translate(-(width + 5), 0)
-
-        cr.set_source_rgb(0.6, 0.6, 0.6)
-        cr.rectangle(0, -5, width, 10)
-        if fill:
-            cr.fill()
-        else:
-            cr.stroke()
-        cr.move_to(5, 4.5)
-        cr.set_source_rgb(0, 0, 0)
-        cr.show_text(token)
-
-        if direction.x >= 0:
-            cr.translate(width + 5, direction.y * 15)
+        th = 10
+        rect = Rect(Point(0, 0), tw, th).inset(-2.5)
+        with Save(cr):
+            self.rect(cr, rect)
+            cr.set_source_rgb(0.5, 0.5, 0.5)
+            if fill:
+                cr.fill()
+            else:
+                cr.stroke()
+            cr.set_source_rgb(0.0, 0.0, 0.0)
+            self.text(cr, token)
+        return (rect.width, rect.height)
 
     def run(self, cr, env, origin, scale, window_size):
         self.trace("run:", self.state)
 
-        width, height = window_size
-        content = Point(
-            width - self.vm_gutter_width,
-            height - self.code_gutter_height)
-        center = content * 0.5
-        bounds = Rect(Point(0, 0), content.x / scale.x, content.y / scale.y)
+        window = Rect.from_top_left(Point(0, 0), window_size.x, window_size.y)
 
-        # cache environment, needed for computing allowable opcodes
-        self.env = env
+        content = window\
+            .split_top(window.height - self.code_gutter_height)\
+            .split_left(window.width - self.vm_gutter_width)
 
-        # prepare the transform matrix
-        cr.save()
+        code_gutter = window\
+            .split_bottom(window.height - self.code_gutter_height)
 
-        # clip drawing area to leave room for the UI
-        cr.rectangle(
-            0.0,
-            0.0,
-            width - self.vm_gutter_width,
-            height - self.code_gutter_height)
-        cr.clip()
-
-        cr.translate(center.x, center.y)
-        cr.scale(scale.x, scale.y)
+        vm_gutter = Rect.from_top_left(
+            content.northeast(),
+            self.vm_gutter_width,
+            content.height
+        )
 
         # set default context state
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(1.0)
 
-        # create a new vm instance with the window as the target.
-        cr.save()
-        try:
-            error = None
-            vm = VM(cr, bounds, env, False)
-            vm.run(self.state.prog)
-        except Exception as e:
-            error = e
-        self.transform = cr.get_matrix()
-        self.transform.invert()
-        cr.restore()
+        bounds = Rect(Point(0, 0), content.width / scale.x, content.height / scale.y)
+        # cache environment, needed for computing allowable opcodes
+        self.env = env
 
-        # save the current point
-        x, y = cr.get_current_point()
+        with Subdivide(cr, content):
+            cr.scale(scale.x, scale.y)
 
-        # stroke any residual path for feedback
-        cr.set_source_rgb(1.0, 1.0, 1.0)
-        cr.set_operator(cairo.OPERATOR_DIFFERENCE)
-        cr.set_line_width(0.1)
-        cr.stroke()
+            # create a new vm instance with the window as the target.
+            try:
+                error = None
+                vm = VM(cr, bounds, env, False)
+                vm.run(self.state.prog)
+            except Exception as e:
+                error = e
 
-        # draw the current point.
-        cr.save()
-        cr.translate(x, y)
-        cr.move_to(-1, 0)
-        cr.line_to(1, 0)
-        cr.move_to(0, -1)
-        cr.line_to(0, 1)
-        cr.stroke()
-        cr.restore()
+            self.transform = cr.get_matrix()
+            self.inverse_transform = cr.get_matrix()
+            self.inverse_transform.invert()
 
-        # show any residual points on stack
-        cr.save()
-        for item in vm.stack:
-            if isinstance(item, Point):
-                cr.arc(item.x, item.y, 0.5, 0, math.pi * 2)
-                cr.fill()
-        cr.restore()
+            # save the current point
+            x, y = cr.get_current_point()
 
-        # draw top two numbers on stack
-        stack_nums = [
-            i for i in reversed(vm.stack)
-            if (isinstance(i, int) or isinstance(i, float))
-        ] if vm.stack else []
-
-        if len(stack_nums) == 1:
-            cr.move_to(stack_nums[0], -height / 2)
-            cr.line_to(stack_nums[0],  height / 2)
-            cr.stroke()
-        elif len(stack_nums) == 2:
-            cr.move_to(-width / 2, stack_nums[0])
-            cr.line_to(width / 2,  stack_nums[0])
-            cr.stroke()
-            cr.move_to(stack_nums[1], -height / 2)
-            cr.line_to(stack_nums[1],  height / 2)
+        with Save(cr):
+            # stroke any residual path for feedback
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            cr.set_operator(cairo.OPERATOR_DIFFERENCE)
+            cr.set_line_width(0.1)
             cr.stroke()
 
-        # Draw UI layer, cmdline, and debug info.
-        cr.restore()
-        cr.set_line_width(1.0)
+        with Save(cr):
+            # draw the current point.
+            x, y = self.transform.transform_point(x, y)
+            cr.translate(x, y)
+            cr.move_to(-5, 0)
+            cr.line_to(5, 0)
+            cr.move_to(0, -5)
+            cr.line_to(0, 5)
+            cr.stroke()
+
+            # show any residual points on stack
+            for item in vm.stack:
+                if isinstance(item, Point):
+                    (x, y) = self.transform.transform_point(item.x, item.y)
+                    cr.arc(x, y, 0.5, 0, math.pi * 2)
+                    cr.fill()
+
+            # draw top two numbers on stack
+            stack_nums = [
+                i for i in reversed(vm.stack)
+                if (isinstance(i, int) or isinstance(i, float))
+            ] if vm.stack else []
+
+            if len(stack_nums) == 1:
+                cr.arc(0, 0, 0, math.pi * 2, stack_nums[0])
+                cr.stroke()
+            elif len(stack_nums) == 2:
+                # XXX: fixme 
+                # cr.move_to(-width / 2, stack_nums[0])
+                # cr.line_to(width / 2,  stack_nums[0])
+                # cr.stroke()
+                # cr.move_to(stack_nums[1], -height / 2)
+                # cr.line_to(stack_nums[1],  height / 2)
+                # cr.stroke()
+                pass
 
         # draw gutters around UI
-        cr.move_to(0.0, height - self.code_gutter_height)
-        cr.line_to(width, height - self.code_gutter_height)
-        cr.move_to(width - self.vm_gutter_width, 0)
-        cr.rel_line_to(0, height - self.code_gutter_height)
-        cr.stroke()
+        with Save(cr):
+            cr.set_line_width(1.0)
+            cr.move_to(*content.southwest())
+            cr.rel_line_to(window.width, 0)
+            cr.move_to(*vm_gutter.northwest())
+            cr.line_to(*vm_gutter.southwest())
+            cr.stroke()
 
         # draw the visible region of the bytecode.
+        with Subdivide(cr, code_gutter) as bounds:
+            cursor = self.state.cursor
 
-        cursor = self.state.cursor
-        cr.save()
-        cr.translate(width * 0.5, height - self.code_gutter_height * 0.5)
-        cr.move_to(0, 0)
+            if cursor.length <= 1:
+                selected = [self.state.token]
+            else:
+                selected = self.state.prog[cursor.left:cursor.right]
 
-        cr.save()
-        direction = Point(-1.0, 0)
-        for token in reversed(self.state.prog[:cursor.left]):
-            self.token(cr, str(token), direction)
-        cr.restore()
+            with Save(cr):
+                w = 0
+                for token in selected:
+                    (width, _) = self.token(cr, str(token), False)
+                    cr.translate(width + 5.0, 0.0)
+                    w += width + 10.0
 
-        if cursor.length <= 1:
-            selected = [self.state.token]
-        else:
-            selected = self.state.prog[cursor.left:cursor.right]
+            with Save(cr):
+                cr.translate(-w / 2.0 - 5.0, 0.0)
+                for token in reversed(self.state.prog[:cursor.left]):
+                    (width, height) = self.token(cr, str(token))
+                    cr.translate(-(width + 5.0), 0.0)
 
-        direction = Point(1.0, 0)
-        for token in selected:
-            self.token(cr, str(token), direction, False)
+            with Save(cr):
+                cr.translate(w / 2.0 + 5.0, 0.0)
+                for token in self.state.prog[cursor.right:]:
+                    (width, height) = self.token(cr, str(token))
+                    cr.translate(width + 5.0, 0.0)
 
-        for token in self.state.prog[cursor.right:]:
-            self.token(cr, str(token), direction)
+        # with Subdivide(cr, window) as bounds:
+        #     # draw the allowed commands for the current context
+        #     cr.translate(*(bounds.northwest() + Point(10, 10)))
+        #     for item in self.allowable:
+        #         (w, h) = self.token(cr, str(item))
+        #         cr.translate(w + 5.0, 0.0)
 
-        cr.restore()
+        with Subdivide(cr, vm_gutter) as bounds:
+            cr.translate(*bounds.south())
+            for item in reversed(vm.stack):
+                cr.translate(0, -10)
+                self.text(cr, repr(item))
 
-        # draw the allowed commands for the current context
-        cr.save()
-        cr.translate(0, 10)
-        for item in self.allowable:
-            self.token(cr, str(item), direction)
-        cr.restore()
-
-        # show textual stack, growing upward
-        cr.save()
-        cr.translate(
-            width - self.vm_gutter_width,
-            height - self.code_gutter_height - 10)
-        for item in reversed(vm.stack):
-            cr.move_to(0, 0)
-            cr.show_text(repr(item))
-            cr.translate(0, -10)
-        cr.restore()
-
-        # show the current vm error, if any
-        if error is not None:
-            _, _, tw, _, _, _ = cr.text_extents(repr(error))
-            cr.translate(0, height - self.code_gutter_height - 10)
-            cr.move_to(0, 0)
-            cr.show_text(repr(error))
+        with Subdivide(cr, content) as bounds:
+            # show the current vm error, if any
+            if error is not None:
+                _, _, tw, _, _, _ = cr.text_extents(repr(error))
+                cr.move_to(*bounds.southwest() + Point(5, -10))
+                cr.show_text(repr(error))
 
 
     def handle_key_event(self, event):
@@ -1152,7 +1195,7 @@ class Editor(object):
         self.update_cb()
 
     def handle_button_press(self, event):
-        (x, y) = self.transform.transform_point(event.x, event.y)
+        (x, y) = self.inverse_transform.transform_point(event.x, event.y)
         self.state = self.state.insert_point(x, y)
         self.update_cb()
 
@@ -1223,6 +1266,7 @@ def gui():
 
     editor = Editor(update)
     window = Gtk.Window()
+    window.set_size_request(640, 480)
     da = Gtk.DrawingArea()
     da.set_events(Gdk.EventMask.ALL_EVENTS_MASK)
     window.add(da)
