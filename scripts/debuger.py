@@ -280,13 +280,25 @@ class VM(object):
         self.debug_output = []
         self.locals_ = []
 
+    def get_local(self, name):
+        for env in reversed(self.locals_):
+            if name in env:
+                self.trace("LOCAL")
+                self.push(env[name])
+                return True
+        return False
+
+    def set_local(self, name, value):
+        self.locals_[-1][name] = value
+
     def run(self, program, target, env):
-        local = {}
+        self.locals_.append({})
         self.trace("PROG:", program)
         for token in program[target]:
-            self.execute(token, program, local, env)
+            self.execute(token, program, env)
+        self.locals_.pop()
 
-    def execute(self, token, program, local, env):
+    def execute(self, token, program, env):
         self.trace("EXEC:", token)
         if token == "loop":
             self.trace("LOOP")
@@ -301,20 +313,17 @@ class VM(object):
             if (symbol in self.opcodes
                 or symbol in env
                 or symbol in program
-                or symbol in local
+                or self.get_local(symbol)
             ):
-                raise VMError("Redefinition of symbol %s" % token)
+                raise VMError("Redefinition of symbol %s" % symbol)
             else:
-                local[symbol] = value
+                self.set_local(symbol, value)
         elif token == "call":
             symbol = self.pop()
             self.run(program, symbol, env)
         elif token in self.opcodes:
             self.trace("OPCD")
             self.opcodes[token](self)
-        elif token in local:
-            self.trace("LOCAL")
-            self.push(local[token])
         elif token in env:
             self.trace("ENV")
             self.push(env[token])
@@ -324,8 +333,9 @@ class VM(object):
         elif isinstance(token, str) and token.startswith(":"):
             self.push(token[1:])
         else:
-            self.trace("PUSH")
-            self.push(token)
+            if not self.get_local(token):
+                self.trace("PUSH")
+                self.push(token)
 
     def push(self, val):
         self.stack.append(val)
@@ -369,13 +379,6 @@ class VM(object):
         self.push(a % b)
     def max(self):  self.push(max(self.pop(), self.pop()))
     def min(self):  self.push(min(self.pop(), self.pop()))
-
-    def define(self):
-        name = self.pop()
-        body = self.pop()
-        assert isinstance(body, list)
-        assert isinstance(name, str)
-        self.env[name] = body
 
     def load(self):
         self.name = self.pop()
@@ -591,7 +594,6 @@ class VM(object):
         "abs":       abs,
         "sin":       sin,
         "cos":       cos,
-        "define":    define,
         "load":      load,
         "range":     range,
         "point":     point,
