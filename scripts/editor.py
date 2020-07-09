@@ -282,7 +282,6 @@ class VM(object):
         if env is None:
             env = {}
         local = {}
-        self.debug_output = []
         self.trace("PROG:", program)
         for token in program[target]:
             self.execute(token, program, local, env)
@@ -492,10 +491,10 @@ class VM(object):
         self.target.paint()
 
     def disp(self):
-        self.debug_output.append(self.peek())
+        self.debug_output.append(self.peek(0))
 
     def debug(self):
-        self.debug_output.append(self.stack)
+        self.debug_output.append(list(self.stack))
 
     def bounds(self):
         self.push(self.layout_stack[-1])
@@ -919,6 +918,10 @@ class Editor(object):
                 _, _, tw, _, _, _ = cr.text_extents(repr(error))
                 cr.move_to(*bounds.southwest() + Point(5, -10))
                 cr.show_text(repr(error))
+
+        with Subdivide(cr, status_bar) as bounds:
+            cr.move_to(*bounds.west())
+            cr.show_text(repr(vm.debug_output))
 
 
     def handle_key_event(self, event):
