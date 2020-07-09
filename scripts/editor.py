@@ -567,6 +567,9 @@ class VM(object):
     def time(self):
         self.push(time.time())
 
+    def pi(self):
+        self.push(math.pi)
+
 
     ## end of opcodes
 
@@ -638,6 +641,7 @@ class VM(object):
         "radius":    radius,
         "pop":       pop_bounds,
         "time":      time,
+        "pi":        pi
     }
 
 
