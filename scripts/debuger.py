@@ -432,6 +432,30 @@ class VM(object):
         w = self.pop()
         self.target.rectangle(w * -0.5, h * -0.5, w, h)
 
+    def round_rectangle(self):
+        radius = self.pop()
+        h = self.pop()
+        w = self.pop()
+        bounds = Rect(Point(0,0), w, h)
+        centers = bounds.inset(radius)
+        y1 = bounds.y
+        y2 = bounds.y + bounds.height
+        x2 = bounds.x + bounds.width
+        c1 = inset.northwest()
+        c2 = inset.northeast()
+        c3 = inset.southeast()
+        c4 = inset.southwest()
+
+        self.cr.new_path()
+        self.cr.arc(c1.x, c1.y, radius, PI, PI * 1.5)
+        self.cr.line_to(c2.x, y1)
+        self.cr.arc(c2.x, c2.y, radius, PI * 1.5, 0.0)
+        self.cr.line_to(x2, c3.y)
+        self.cr.arc(c3.x, c3.y, radius, 0.0, PI * 0.5)
+        self.cr.line_to(c4.x, y2)
+        self.cr.arc(c4.x, c4.y, radius, PI * 0.5, PI)
+        self.cr.close_path()
+
     def moveto(self):
         (x, y) = self.pop()
         self.target.move_to(x, y)
@@ -602,6 +626,7 @@ class VM(object):
         "rgb":       rgb,
         "rgba":      rgba,
         "rectangle": rectangle,
+        "round_rectangle": round_rectangle,
         "moveto":    moveto,
         "lineto":    lineto,
         "curveto":   curveto,
