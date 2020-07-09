@@ -379,7 +379,7 @@ class VM(object):
         step = self.pop()
         upper = self.pop()
         lower = self.pop()
-        self.push(frange(lower, upper, step))
+        self.push(list(frange(lower, upper, step)))
 
     def unquote(self):
         self.run(self.pop())
