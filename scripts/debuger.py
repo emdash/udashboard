@@ -82,6 +82,7 @@ from gi.repository import Gdk
 import cairo
 import json
 import math
+import pyinotify
 import threading
 from queue import Queue
 import re
@@ -963,6 +964,17 @@ class ReaderThread(threading.Thread):
             self.env = json.loads(sys.stdin.readline())
 
 
+def notify_thread(editor):
+
+    def modified(*unused, **unused2):
+        GObject.idle_add(editor.state.load)
+
+    wm = pyinotify.WatchManager()
+    wm.add_watch(sys.argv[1], pyinotify.IN_MODIFY)
+    notifier = pyinotify.ThreadedNotifier(wm, modified)
+    notifier.start()
+
+
 def gui():
     def dpi(widget):
         """Return the dpi of the current monitor as a Point."""
@@ -1000,6 +1012,8 @@ def gui():
     GObject.timeout_add(25, update)
 
     editor = Editor(ReaderThread())
+    notify_thread(editor)
+
     window = Gtk.Window()
     window.set_size_request(640, 480)
     da = Gtk.DrawingArea()
