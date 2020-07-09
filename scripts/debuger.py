@@ -952,32 +952,9 @@ class Editor(object):
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
-        self.state.load()
 
     def handle_button_press(self, event):
-        self.state.load()
-
-    def handle_cmd(self, cmd):
-        """Process the given string as a command."""
-        if cmd == ":clr":
-            self.clear()
-        elif cmd == ":undo":
-            pass
-        elif cmd == ":quit":
-            exit(0)
-        elif cmd == ":save":
-            f = open("image.dat", "w")
-            for token in prog:
-                print(token, file=f)
-            f.close()
-        elif cmd == ":load":
-            self.prog = [l.strip() for l in open("image.dat", "r")]
-        elif cmd.startswith(":set"):
-            _, name, val = cmd.split()
-            env[name] = [val]
-            print(env)
-        else:
-            print("unrecognized cmd", cmd)
+        pass
 
 
 class ReaderThread(threading.Thread):
