@@ -1,0 +1,36 @@
+# give us a small margin around the dial face
+1 inset
+
+# draw the face
+face
+
+# draw the indicator needle at the current RPM
+RPM indicator
+
+face:
+        0 7000 500 range :tickmark loop
+        round linecap 2.0 linewidth stroke
+
+tickmark:
+        save
+        rpm2angle rotate
+        radius 0 point moveto
+        radius 7 - 0 point lineto
+        restore
+
+indicator:
+        save
+        rpm2angle rotate
+        10 inset
+        0 -3 point moveto
+        radius 0 point lineto
+        0 3 point lineto
+        close fill
+        5 circle fill
+        pop restore
+
+rpm2angle:
+        rpm define
+        2 pi * 3 / angle_start define
+        5 pi * 3 / angle_range define
+        rpm 6500 / angle_range * angle_start +
