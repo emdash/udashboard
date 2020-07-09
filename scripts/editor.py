@@ -278,9 +278,7 @@ class VM(object):
         self.layout_stack = [bounds]
         self.debug_output = []
 
-    def run(self, program, target='main', env=None):
-        if env is None:
-            env = {}
+    def run(self, program, target, env):
         local = {}
         self.trace("PROG:", program)
         for token in program[target]:
@@ -292,10 +290,9 @@ class VM(object):
             self.trace("LOOP")
             body = self.pop()
             collection = self.pop()
-            for value in collection:
-                self.push(value)
-                self.run(body)
-            return
+            for item in collection:
+                self.push(item)
+                self.run(program, body, env)
         elif token == "define":
             symbol = self.pop()
             value = self.pop()
@@ -306,16 +303,21 @@ class VM(object):
             ):
                 raise VMError("Redefinition of symbol %s" % token)
             else:
-                env[symbol] = value
+                local[symbol] = value
         elif token in self.opcodes:
             self.trace("OPCD")
             self.opcodes[token](self)
+        elif token in local:
+            self.trace("LOCAL")
+            self.push(local[token])
         elif token in env:
             self.trace("ENV")
             self.push(env[token])
         elif token in program:
             self.trace("FUNC")
-            self.run(program, token)
+            self.run(program, token, env)
+        elif isinstance(token, str) and token.startswith(":"):
+            self.push(token[1:])
         else:
             self.trace("PUSH")
             self.push(token)
@@ -667,15 +669,12 @@ def compile(prog):
             else:
                 cur_label = labels[label] = []
         elif token == "[":
-            if cur_list:
-                lists.append(cur_list)
-            cur_list = []
+            lists.append([])
         elif token == "]":
-            cur_label.append(cur_list)
-            cur_list = lists.pop()
+            cur_label.append(lists.pop())
         else:
-            if cur_list:
-                cur_list.append(parse(token))
+            if lists:
+                lists[-1].append(parse(token))
             else:
                 cur_label.append(parse(token))
 
