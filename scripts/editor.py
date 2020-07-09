@@ -726,8 +726,9 @@ class EditorState(object):
     def load(self):
         prog = []
         for line in open(self.path, "r"):
-            for token in line.split():
-                prog.append(token.strip())
+            if not line.strip().startswith("#"):
+                for token in line.split():
+                    prog.append(token.strip())
 
         self.prog = compile(prog)
         print(self.prog)
