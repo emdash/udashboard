@@ -278,6 +278,7 @@ class VM(object):
         self.trace.enable = trace
         self.layout_stack = [bounds]
         self.debug_output = []
+        self.locals_ = []
 
     def run(self, program, target, env):
         local = {}
@@ -305,6 +306,9 @@ class VM(object):
                 raise VMError("Redefinition of symbol %s" % token)
             else:
                 local[symbol] = value
+        elif token == "call":
+            symbol = self.pop()
+            self.run(program, symbol, env)
         elif token in self.opcodes:
             self.trace("OPCD")
             self.opcodes[token](self)
@@ -383,9 +387,6 @@ class VM(object):
         upper = self.pop()
         lower = self.pop()
         self.push(list(frange(lower, upper, step)))
-
-    def unquote(self):
-        self.run(self.pop())
 
     def point(self):
         y = self.pop()
@@ -593,7 +594,6 @@ class VM(object):
         "define":    define,
         "load":      load,
         "range":     range,
-        "unquote":   unquote,
         "point":     point,
         "unpack":    unpack,
         "len":       len,
@@ -730,7 +730,6 @@ class EditorState(object):
                     prog.append(token.strip())
 
         self.prog = compile(prog)
-        print(self.prog)
 
 
 
