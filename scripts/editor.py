@@ -806,11 +806,9 @@ class Editor(object):
             try:
                 error = None
                 vm = VM(cr, bounds, False)
-                vm.run(self.state.prog)
-            #except Exception as e:
-            #    error = e
-            finally:
-                pass
+                vm.run(self.state.prog, 'main', self.reader.env)
+            except Exception as e:
+                error = e
 
             self.transform = cr.get_matrix()
             self.inverse_transform = cr.get_matrix()
