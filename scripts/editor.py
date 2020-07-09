@@ -80,6 +80,7 @@ from gi.repository import GObject
 from gi.repository import Gtk
 from gi.repository import Gdk
 import cairo
+import json
 import math
 import threading
 from queue import Queue
@@ -737,40 +738,12 @@ class Editor(object):
     code_gutter_width = 125.5
     token_length = 55.0
 
-    def __init__(self, update_cb):
-        self.state = EditorState('image.dat')
-        self.char_map = {
-            Gdk.KEY_BackSpace: self.delete,
-            Gdk.KEY_space: self.insert,
-            Gdk.KEY_Return: self.insert,
-            Gdk.KEY_Up: lambda: self.move_cursor(-1),
-            Gdk.KEY_Down: lambda: self.move_cursor(1)
-        }
-        self.update_cb = update_cb
+    def __init__(self, reader):
+        self.state = EditorState(sys.argv[1])
         self.allowable = []
-        # Annoyingly, we need to be realized to calculate the default env.
-        # self.update_allowable()
-        self.env = {}
         self.transform = None
-
-    def insert(self):
-        self.trace("insert", self.state)
-        self.state = self.state.insert()
-        self.update_allowable()
-
-    def delete(self):
-        self.trace("delete:", self.state)
-        self.state = self.state.pop()
-        self.update_allowable()
-
-    def move_cursor(self, dist):
-        self.trace("move:", self.state)
-        self.state = self.state.move(dist, False)
-        self.update_allowable()
-
-    def update_allowable(self):
-        self.allowable = list(self.state.allowable(self.env)[0])
-        self.allowable.sort()
+        self.reader = reader
+        self.reader.start()
 
     def text(self, cr, text):
         """Draw text centered at (0, 0)"""
@@ -930,6 +903,13 @@ class Editor(object):
                 cr.translate(0, -10)
                 self.text(cr, repr(item))
 
+        with Subdivide(cr, vm_gutter) as bounds:
+            cr.translate(*bounds.northwest() + Point(0, 10))
+            for item in sorted(self.reader.env):
+                cr.move_to(0, 0)
+                cr.show_text("%s: %r" % (item, self.reader.env[item]))
+                cr.translate(0, 10)
+
         with Subdivide(cr, content) as bounds:
             # show the current vm error, if any
             if error is not None:
@@ -968,6 +948,16 @@ class Editor(object):
             print("unrecognized cmd", cmd)
 
 
+class ReaderThread(threading.Thread):
+
+    env = {}
+    daemon = True
+
+    def run(self):
+        while True:
+            self.env = json.loads(sys.stdin.readline())
+
+
 def gui():
     def dpi(widget):
         """Return the dpi of the current monitor as a Point."""
@@ -1001,9 +991,10 @@ def gui():
         finally:
             return True
 
+
     GObject.timeout_add(25, update)
 
-    editor = Editor(update)
+    editor = Editor(ReaderThread())
     window = Gtk.Window()
     window.set_size_request(640, 480)
     da = Gtk.DrawingArea()
