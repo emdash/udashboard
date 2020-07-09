@@ -1,0 +1,48 @@
+face
+
+eye:
+        save
+        10 20 elipse stroke
+        time .5 *
+        dup
+        cos 2.5 *
+        swap
+        sin 5 *
+        point translate
+        5 10 elipse fill
+        restore
+
+face:
+        save
+        -10 -10 point translate
+        eye
+        restore
+        save
+        10 -10 point translate
+        eye
+        restore
+        20 40 35 time sin 2.5 * + smile
+        30 45 elipse stroke
+
+smile:
+        save
+        curvature define
+        2 / w define
+        y define
+        0 w - y point moveto
+        w -3 / curvature point
+        w 3 / curvature point
+        w y point curveto
+        round linecap
+        2.5 linewidth
+        stroke
+        restore
+
+elipse:
+        save
+        y define
+        x define
+        x y min rad define
+        x rad / y rad / scale
+        rad circle
+        restore
