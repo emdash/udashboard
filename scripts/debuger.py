@@ -971,6 +971,7 @@ def notify_thread(editor):
     wm = pyinotify.WatchManager()
     wm.add_watch(sys.argv[1], pyinotify.IN_MODIFY)
     notifier = pyinotify.ThreadedNotifier(wm, modified)
+    notifier.daemon = True
     notifier.start()
 
 
