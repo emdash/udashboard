@@ -25,24 +25,24 @@ face:
         30 45 elipse stroke
 
 smile:
-        save
         curvature define
         2 / w define
         y define
+        save
+        round linecap
+        2.5 linewidth
         0 w - y point moveto
         w -3 / curvature point
         w 3 / curvature point
         w y point curveto
-        round linecap
-        2.5 linewidth
         stroke
         restore
 
 elipse:
-        save
         y define
         x define
         x y min rad define
+        save
         x rad / y rad / scale
         rad circle
         restore

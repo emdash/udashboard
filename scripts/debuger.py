@@ -249,6 +249,20 @@ class Rect(object):
         return min(self.width, self.height) * 0.5
 
 
+class VirtualPath(object):
+    """Used to track the stack effects of path operations"""
+
+    def __repr__(self):
+        return "<Path>"
+
+
+class VirtualContext(object):
+    """Used to track the stack effects of path operations"""
+
+    def __repr__(self):
+        return "<Context>"
+
+
 def frange(lower, upper, step):
     """Like xrange, but for floats."""
     accum = lower
@@ -279,6 +293,8 @@ class VM(object):
         self.layout_stack = [bounds]
         self.debug_output = []
         self.locals_ = []
+        self.cur_token = None
+        self.push(VirtualContext())
 
     def get_local(self, name):
         for env in reversed(self.locals_):
@@ -296,6 +312,7 @@ class VM(object):
         self.trace("PROG:", program)
         for token in program[target]:
             self.execute(token, program, env)
+            token.update_transform(self.target.get_matrix())
         self.locals_.pop()
 
     def execute(self, token, program, env):
@@ -315,7 +332,7 @@ class VM(object):
                 or symbol in program
                 or self.get_local(symbol)
             ):
-                raise VMError("Redefinition of symbol %s" % symbol)
+                raise VMError("Redefinition of symbol %s" % symbol, token)
             else:
                 self.set_local(symbol, value)
         elif token == "call":
@@ -331,17 +348,17 @@ class VM(object):
             self.trace("FUNC")
             self.run(program, token, env)
         elif isinstance(token, str) and token.startswith(":"):
-            self.push(token[1:])
+            self.push(token[1:].value)
         else:
             if not self.get_local(token):
                 self.trace("PUSH")
-                self.push(token)
+                self.push(token.value)
 
     def push(self, val):
         self.stack.append(val)
 
     def peek(self, index=0):
-        return self.stack[-index]
+        return self.stack[-(index + 1)]
 
     def poke(self, value, index=0):
         self.stack[index] = value
@@ -350,7 +367,14 @@ class VM(object):
         if self.stack:
             return self.stack.pop()
         else:
-            raise VMError("Stack underflow")
+            raise VMError("Stack underflow", self.cur_token)
+
+    def require(self, value, t):
+        if not isinstance(value, t):
+            raise VMError(
+                "Expected %r, got %s" % (t.__name__, type(value).__name__),
+                self.cur_token
+            )
 
     # --- OPCODES
 
@@ -408,6 +432,7 @@ class VM(object):
         b = self.pop()
         g = self.pop()
         r = self.pop()
+        self.require(self.peek(0), VirtualContext)
         self.push(cairo.SolidPattern(r, g, b))
 
     def rgba(self):
@@ -415,27 +440,34 @@ class VM(object):
         b = self.pop()
         g = self.pop()
         r = self.pop()
+        self.require(self.peek(0), VirtualContext)
         self.push(cairo.SolidPattern(r, g, b, a))
 
     def circle(self):
         radius = self.pop()
+        self.maybe_start_path()
         self.target.arc(0, 0, radius, 0, 2 * math.pi)
 
     def arc(self):
         end = self.pop()
         start = self.pop()
         radius = self.pop()
+        self.maybe_start_path()
         self.target.arc(0, 0, radius, start, end)
 
     def rectangle(self):
         h = self.pop()
         w = self.pop()
+        self.maybe_start_path()
+        self.require(self.peek(0), VirtualPath)
         self.target.rectangle(w * -0.5, h * -0.5, w, h)
 
     def round_rectangle(self):
         radius = self.pop()
         h = self.pop()
         w = self.pop()
+        self.maybe_start_path()
+
         bounds = Rect(Point(0,0), w, h)
         centers = bounds.inset(radius)
         y1 = bounds.y
@@ -446,59 +478,80 @@ class VM(object):
         c3 = inset.southeast()
         c4 = inset.southwest()
 
-        self.cr.new_path()
-        self.cr.arc(c1.x, c1.y, radius, PI, PI * 1.5)
-        self.cr.line_to(c2.x, y1)
-        self.cr.arc(c2.x, c2.y, radius, PI * 1.5, 0.0)
-        self.cr.line_to(x2, c3.y)
-        self.cr.arc(c3.x, c3.y, radius, 0.0, PI * 0.5)
-        self.cr.line_to(c4.x, y2)
-        self.cr.arc(c4.x, c4.y, radius, PI * 0.5, PI)
-        self.cr.close_path()
+        self.target.new_path()
+        self.target.arc(c1.x, c1.y, radius, PI, PI * 1.5)
+        self.target.line_to(c2.x, y1)
+        self.target.arc(c2.x, c2.y, radius, PI * 1.5, 0.0)
+        self.target.line_to(x2, c3.y)
+        self.target.arc(c3.x, c3.y, radius, 0.0, PI * 0.5)
+        self.target.line_to(c4.x, y2)
+        self.target.arc(c4.x, c4.y, radius, PI * 0.5, PI)
+        self.target.close_path()
+
+    def maybe_start_path(self):
+        if not isinstance(self.peek(0), VirtualPath):
+            self.push(VirtualPath())
 
     def moveto(self):
         (x, y) = self.pop()
+        self.maybe_start_path()
         self.target.move_to(x, y)
 
     def lineto(self):
         (x, y) = self.pop()
+        self.maybe_start_path()
         self.target.line_to(x, y)
 
     def curveto(self):
         (x3, y3) = self.pop()
         (x2, y2) = self.pop()
         (x1, y1) = self.pop()
+        self.require(self.peek(0), VirtualPath)
         self.target.curve_to(x1, y1, x2, y2, x3, y3)
 
     def close(self):
+        self.require(self.peek(0), VirtualPath)
         self.target.close_path()
 
     def new(self):
+        self.require(self.peek(0), VirtualContext)
+        self.push(VirtualPath())
         self.target.new_path()
 
     def subpath(self):
         self.target.new_sub_path()
+        self.push(VirtualPath())
 
     def source(self):
         self.target.set_source(self.pop())
+        self.require(self.peek(0), VirtualContext)
 
     def linewidth(self):
         self.target.set_line_width(self.pop())
+        self.require(self.peek(0), VirtualContext)
 
     def linejoin(self):
         self.target.set_line_join(self.joins.get(self.pop()))
+        self.require(self.peek(0), VirtualContext)
 
     def linecap(self):
         self.target.set_line_cap(self.caps.get(self.pop()))
+        self.require(self.peek(0), VirtualContext)
 
     def stroke(self):
         self.target.stroke()
+        self.require(self.pop(), VirtualPath)
+        self.require(self.peek(0), VirtualContext)
 
     def fill(self):
         self.target.fill()
+        self.require(self.pop(), VirtualPath)
+        self.require(self.peek(0), VirtualContext)
 
     def clip(self):
         self.target.clip()
+        self.require(self.pop(), VirtualPath)
+        self.require(self.peek(0), VirtualContext)
 
     def save(self):
         self.target.save()
@@ -509,17 +562,21 @@ class VM(object):
     def translate(self):
         (x, y) = self.pop()
         self.target.translate(x, y)
+        self.require(self.peek(0), VirtualContext)
 
     def rotate(self):
         self.target.rotate(self.pop())
+        self.require(self.peek(0), VirtualContext)
 
     def scale(self):
         y = self.pop()
         x = self.pop()
+        self.require(self.peek(0), VirtualContext)
         self.target.scale(x, y)
 
     def paint(self):
         self.target.paint()
+        self.require(self.peek(0), VirtualContext)
 
     def disp(self):
         self.debug_output.append(self.peek(0))
@@ -674,13 +731,95 @@ class VM(object):
     }
 
 
-def compile(prog):
-    labels = {'main': []}
-    cur_label = labels['main']
-    cur_list = None
-    lists = []
 
-    def parse(token):
+class Analyzer(VM):
+
+    def __init__(self, *args):
+        self.shadow_stack = []
+        self.token_args = {}
+        self.token_stack = []
+        self.save_count = 0
+        VM.__init__(self, *args)
+
+    def run(self, program, target, env):
+        self.token_stack.append(self.cur_token)
+        VM.run(self, program, target, env)
+        self.cur_token = self.token_stack.pop()
+
+    def execute(self, token, program, env):
+        if token == 'save':
+            self.save_count += 1
+        elif token == 'restore':
+            self.save_count -= 1
+        self.cur_token = token
+        if token not in self.token_args:
+            self.token_args[id(token)] = []
+        VM.execute(self, token, program, env)
+
+    def push(self, value):
+        self.shadow_stack.append(self.cur_token)
+        VM.push(self, value)
+
+    def pop(self):
+        ret = VM.pop(self)
+        source = self.shadow_stack.pop()
+        self.token_args[id(self.cur_token)].append(source)
+        return ret
+
+    def peek(self, pos):
+        index = -(pos + 1)
+        source = self.shadow_stack[index]
+        if source is not None:
+            self.shadow_stack[index] = self.cur_token
+            self.token_args[id(self.cur_token)].append(source)
+        return VM.peek(self, pos)
+
+    def trace_insn(self, token):
+        ret = []
+        stack = [(token, 0)]
+        seen = set()
+
+        while stack:
+            (cur, depth) = stack.pop()
+            if cur not in seen:
+                ret.append((cur, depth))
+                stack.extend((tok, depth + 1) for tok in self.token_args[id(cur)])
+
+        ret.pop(0)
+
+        return ret
+
+
+class Token(object):
+
+    def __init__(self, source, line, index):
+        self.source = source
+        self.value = self.parse(source)
+        self.line = line
+        self.index = index
+        self.transform = None
+
+    def update_transform(self, transform):
+        self.transform = transform
+
+    def endswith(self, x):
+        return self.source.endswith(x)
+
+    def startswith(self, x):
+        return self.source.startswith(x)
+
+    def __eq__(self, other):
+        return self.value == other
+
+    def update(self, value):
+        self.value = value
+        self.source = str(value)
+
+    def __hash__(self):
+        return hash(self.source)
+
+    @classmethod
+    def parse(cls, token):
         try:
             return int(token)
         except:
@@ -689,11 +828,27 @@ def compile(prog):
             except:
                 return token
 
+
+def compile(source):
+    labels = {'main': []}
+    cur_label = labels['main']
+    cur_list = None
+    lists = []
+    lines = [line.strip().split() for line in source]
+    prog = []
+    tokens = {}
+
+    for lineno, line in enumerate(lines):
+        if line and not line[0].startswith('#'):
+            for index, token in enumerate(line):
+                prog.append(Token(token, lineno, index))
+
     for token in prog:
+        tokens[(token.index, token.line)] = token
         if token.endswith(":"):
-            label = token[:-1]
+            label = token.source[:-1]
             if label in labels:
-                raise VMError("Redefinition of %s" % label)
+                raise VMError("Redefinition of %s" % label, token)
             else:
                 cur_label = labels[label] = []
         elif token == "[":
@@ -702,11 +857,11 @@ def compile(prog):
             cur_label.append(lists.pop())
         else:
             if lists:
-                lists[-1].append(parse(token))
+                lists[-1].append(token)
             else:
-                cur_label.append(parse(token))
+                cur_label.append(token)
 
-    return labels
+    return lines, tokens, labels
 
 
 class Save(object):
@@ -747,17 +902,36 @@ class EditorState(object):
     def __init__(self, path):
         self.path = path
         self.prog = None
+        self.token_map = None
         self.load()
+        self.cursor = (0, 0)
 
     def load(self):
-        prog = []
-        for line in open(self.path, "r"):
-            if not line.strip().startswith("#"):
-                for token in line.split():
-                    prog.append(token.strip())
+        self.source, self.token_map, self.prog = compile(open(self.path, "r"))
 
-        self.prog = compile(prog)
+    def left(self):
+        x, y = self.cursor
+        self.set_cursor(x - 1, y)
 
+    def right(self):
+        x, y = self.cursor
+        self.set_cursor(x + 1, y)
+
+    def up(self):
+        x, y = self.cursor
+        self.set_cursor(x, y - 1)
+
+    def down(self):
+        x, y = self.cursor
+        self.set_cursor(x, y + 1)
+
+    def set_cursor(self, x, y):
+        ymax = len(self.source) - 1
+        xmax = len(self.source[y]) - 1
+        self.cursor = (max(0, min(xmax, x)), max(0, min(ymax, y)))
+
+    def cur_insn(self):
+        return self.token_map[self.cursor]
 
 
 class Editor(object):
@@ -765,7 +939,7 @@ class Editor(object):
     trace = Logger("Editor:")
     status_bar_height = 20.5
     vm_gutter_width = 125.5
-    code_gutter_width = 125.5
+    code_gutter_width = 350.5
     token_length = 55.0
 
     def __init__(self, reader):
@@ -830,10 +1004,13 @@ class Editor(object):
             # create a new vm instance with the window as the target.
             try:
                 error = None
-                vm = VM(cr, bounds, False)
+                vm = Analyzer(cr, bounds, False)
                 vm.run(self.state.prog, 'main', self.reader.env)
-            except Exception as e:
+            except VMError as e:
                 error = e
+
+            for _ in range(vm.save_count):
+                cr.restore()
 
             self.transform = cr.get_matrix()
             self.inverse_transform = cr.get_matrix()
@@ -897,7 +1074,35 @@ class Editor(object):
             cr.stroke()
 
         # # draw the visible region of the bytecode.
-        # with Subdivide(cr, code_gutter) as bounds:
+        with Subdivide(cr, code_gutter) as bounds:
+            cr.translate(*bounds.northwest() + Point(0, 10))
+            if error is not None:
+                with Save(cr):
+                    token = error.args[1]
+                    cr.set_source_rgb(1, 0, 0)
+                    cr.rectangle(token.index * 50, (token.line - 1) * 10, 50, 10)
+                    cr.fill()
+
+            with Save(cr):
+                (x, y) = self.state.cursor
+                cr.set_source_rgb(0.5, 0.5, 0.5)
+                cr.rectangle(x * 50, (y - 1) * 10, 50, 10)
+                cr.fill()
+
+            with Save(cr):
+                try:
+                    for (token, depth) in vm.trace_insn(self.state.cur_insn()):
+                        cr.set_source_rgb(0, 1 - depth * 0.125, 0)
+                        cr.rectangle(token.index * 50, (token.line - 1) * 10, 50, 10)
+                        cr.fill()
+                except KeyError:
+                    pass
+
+
+            for row, line in enumerate(self.state.source):
+                for col, token in enumerate(line):
+                    cr.move_to(col * 50, row * 10)
+                    cr.show_text(token)
 
         #     with Save(cr):
         #         h = 0
@@ -927,7 +1132,7 @@ class Editor(object):
 
         with Subdivide(cr, vm_gutter) as bounds:
             cr.translate(*bounds.south())
-            for item in reversed(vm.stack):
+            for item in vm.stack:
                 cr.translate(0, -10)
                 self.text(cr, repr(item))
 
@@ -943,7 +1148,7 @@ class Editor(object):
             if error is not None:
                 _, _, tw, _, _, _ = cr.text_extents(repr(error))
                 cr.move_to(*bounds.southwest() + Point(5, -10))
-                cr.show_text(repr(error))
+                cr.show_text(error.args[0])
 
         with Subdivide(cr, status_bar) as bounds:
             cr.move_to(*bounds.west())
@@ -952,6 +1157,14 @@ class Editor(object):
 
     def handle_key_event(self, event):
         self.trace("handle_key_event:", self.state)
+        if event.keyval == Gdk.KEY_Left:
+            self.state.left()
+        elif event.keyval == Gdk.KEY_Right:
+            self.state.right()
+        elif event.keyval == Gdk.KEY_Up:
+            self.state.up()
+        elif event.keyval == Gdk.KEY_Down:
+            self.state.down()
 
     def handle_button_press(self, event):
         pass
