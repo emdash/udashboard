@@ -56,7 +56,7 @@ pub enum UnOp {
 
 
 // ADT for types
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TypeTag {
     Unit,
     Bool,
@@ -64,10 +64,22 @@ pub enum TypeTag {
     Float,
     Str,
     Point,
+    Tuple(Seq<TypeTag>),
     List(Node<TypeTag>),
     Map(Map<TypeTag>),
+    Record(AList<Member>),
     Lambda(Seq<TypeTag>, Node<TypeTag>),
     Union(Seq<TypeTag>),
+}
+
+
+// ADT For record fields
+#[derive(Clone, Debug, PartialEq)]
+pub enum Member {
+    Field(Node<TypeTag>),
+    Method(AList<TypeTag>, Node<TypeTag>, Node<Expr>),
+    StaticVal(Node<Expr>),
+    StaticMethod(AList<TypeTag>, Node<TypeTag>, Node<Expr>)
 }
 
 
@@ -189,6 +201,7 @@ pub enum Statement {
     ExprForEffect(Node<Expr>),
     Emit(String, Seq<Expr>),
     Def(String, Node<Expr>),
+    TypeDef(String, Node<TypeTag>),
     ListIter(String, Node<Expr>, Node<Statement>),
     MapIter(String, String, Node<Expr>, Node<Statement>),
     While(Node<Expr>, Node<Statement>),
@@ -222,6 +235,11 @@ pub fn emit(name: &str, exprs: Vec<Expr>) -> Statement {
 
 pub fn def(name: &str, expr: Expr) -> Statement {
     Statement::Def(String::from(name), Node::new(expr))
+}
+
+
+pub fn typedef(name: &str, t: TypeTag) -> Statement {
+    Statement::TypeDef(String::from(name), Node::new(t))
 }
 
 

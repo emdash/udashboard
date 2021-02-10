@@ -41,6 +41,28 @@ impl TypeChecker {
     // If the sequence is empty, reduces to unit.
     // If the sequence contains exactly one type, returns that type.
     // If the sequence contains multiple types, returns a Union with de-duped type.
+    //
+    // XXX: should duplicated types in a union be an error instead?
+    //      on the one hand, this could be obnoxious in the presence
+    //      of unions over type aliases which resolve to the same
+    //      type.  On the other hand, it might be suprising if what
+    //      looked at first like a complex union ultimately collapses
+    //      to an Int, because all its member types are merely aliases
+    //      for Int. This could also happen with enumerations in
+    //      presence of type erasure -- some method of extracting the
+    //      discriminant from a union value at runtime must exist.
+    //
+    //      The choice between structural and nominal typing is
+    //      relevant here: are unions distinct merely because they are
+    //      bound to different type anes? Or are two unions whose
+    //      definition resolves to equivalent value sets equivalent
+    //      types?
+    //
+    //      The other worms in this can are related to records: does
+    //      narrowing over a sequence of records produce a union of
+    //      the record types, or a new record type which is the
+    //      intersection of the types in the sequence (which could be
+    //      an empty record)?
     pub fn narrow(mut types: Seq<TypeTag>) -> Node<TypeTag> {
         types.dedup();
         match types.len() {
@@ -50,7 +72,7 @@ impl TypeChecker {
         }
     }
 
-    // Return the type of the given field in a map.
+    // Return the type of the given field in a record.
     pub fn lookup(fields: &Map<TypeTag>, name: &String) -> TypeExpr {
         if let Some(type_) = fields.get(name) {
             Ok(type_.clone())
