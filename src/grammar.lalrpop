@@ -14,6 +14,7 @@ grammar;
 pub Statement: ast::Statement = {
     FuncDef,
     ProcDef,
+    TypeDef,
     Effect,
     Let,
     EffectExpr,
@@ -40,6 +41,17 @@ pub Type: ast::TypeTag = {
         ast::TypeTag::Map(ast::to_map(items)),
     // TODO: Union
     // TODO?: Unit / None?
+    "Record" "{" <items:(<Str> ":" <Type>)*> "}" =>
+        ast::TypeTag::Record(ast::to_seq(items)),
+    "(" <items:Comma<Type>> ")" => ast::TypeTag::Tuple(ast::to_seq(items)),
+    "Func" "(" <args:Comma<Type>> ")" "->" <ret:Type> =>
+        ast::TypeTag::Lambda(ast::to_seq(args), ast::Node::new(ret)),
+    "Proc" "(" <args:Comma<Type>> ")" =>
+        ast::TypeTag::Lambda(
+            ast::to_seq(args),
+            ast::Node::new(ast::TypeTag::Unit)),
+    "Union" "{" <types:("|" <Type>)+> "}" =>
+	ast::TypeTag::Union(ast::to_seq(types))
     // TODO?: Maybe type
 }
 
@@ -54,6 +66,12 @@ FuncDef: ast::Statement =
 ProcDef: ast::Statement =
     "proc" <name:Id> <args:Arglist> <body:Block>
     => ast::def(name.as_str(), ast::lambda(args, ast::TypeTag::Unit, body));
+
+
+// The only way to introduce a type binding
+TypeDef: ast::Statement =
+    "type" <name:Id> ":" <t:Type>
+    => ast::typedef(name.as_str(), t);
 
 
 // Used for raw cairo operations.
