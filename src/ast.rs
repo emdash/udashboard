@@ -78,7 +78,7 @@ pub enum TypeTag {
 pub enum Member {
     Field(Node<TypeTag>),
     Method(AList<TypeTag>, Node<TypeTag>, Node<Expr>),
-    StaticVal(Node<Expr>),
+    StaticValue(Node<Expr>),
     StaticMethod(AList<TypeTag>, Node<TypeTag>, Node<Expr>)
 }
 

@@ -50,9 +50,16 @@ pub Type: ast::TypeTag = {
         ast::TypeTag::Lambda(
             ast::to_seq(args),
             ast::Node::new(ast::TypeTag::Unit)),
-    "Union" "{" <types:("|" <Type>)+> "}" =>
-	ast::TypeTag::Union(ast::to_seq(types))
-    // TODO?: Maybe type
+    "List" "<" <item:Type> ">"
+	=> ast::TypeTag::List(ast::Node::new(item)),
+    "Map" "<" <items:(<Str> ":" <Type>)*> ">"
+	=> ast::TypeTag::Map(ast::to_map(items)),
+    "Record" "{" <items:Comma<Member>> "}"
+	=> ast::TypeTag::Record(ast::to_alist(items)),
+    "(" <items:Comma<Type>> ")"
+	=> ast::TypeTag::Tuple(ast::to_seq(items)),
+    "Union" "{" <types:Comma<Type>> "}"
+	=> ast::TypeTag::Union(ast::to_seq(types))
 }
 
 
@@ -60,6 +67,17 @@ pub Type: ast::TypeTag = {
 FuncDef: ast::Statement =
     "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block>
     => ast::def(name.as_str(), ast::lambda(args, ret, body));
+// Any field in a record type.
+pub Member: (String, ast::Member) = {
+    "field" <name:Id> ":" <t:Type>
+	=> (name, ast::Member::Field(ast::Node::new(t))),
+    "method" <name:Id> <def:LambdaParts>
+	=> (name, ast::Member::Method(def.0, def.1, def.2)),
+    "const" <name:Id> ":" <t:Type> "=" <value:Expr>
+	=> (name, ast::Member::StaticValue(ast::Node::new(value))),
+    "static" <name:Id> <def:LambdaParts>
+	=> (name, ast::Member::StaticMethod(def.0, def.1, def.2))
+}
 
 
 // Syntatic sugar for defining a function which returns no value.
@@ -69,8 +87,8 @@ ProcDef: ast::Statement =
 
 
 // The only way to introduce a type binding
-TypeDef: ast::Statement =
-    "type" <name:Id> ":" <t:Type>
+TypeDef: ast::Statement
+    = "type" <name:Id> ":" <t:Type>
     => ast::typedef(name.as_str(), t);
 
 
@@ -139,13 +157,24 @@ Param: (String, ast::TypeTag) =
 
 
 // The argument list of a function signature
-Arglist: Vec<(String, ast::TypeTag)> =
+Arglist: ast::AList<ast::TypeTag> =
     "(" <args:Comma<Param>> ")" => args;
 
 
 // An anonymous function expression.
-Lambda: ast::Expr = <args:Arglist> <ret:("->" <Type>)?> <body:Expr>
-    => ast::lambda(args, ret.unwrap_or(ast::TypeTag::Unit), body);
+Lambda: ast::Expr = <parts:LambdaParts> =>
+	ast::lambda(parts.0, parts.1, parts.2);
+
+
+// Code common to method and function definitions.
+LambdaParts:
+(ast::AList<ast::TypeTag>, ast::Node<ast::TypeTag>, ast::Node<ast::Expr>)
+    = <args:Arglist> <ret:("->" <Type>)?> "=" <body:Expr>
+    => (
+	args,
+	ast::Node::new(ret.unwrap_or(ast::TypeTag::Unit)),
+	ast::Node::new(body)
+    );
 
 
 // A sequence of statements treated as an expression.
