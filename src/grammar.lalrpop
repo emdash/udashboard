@@ -4,6 +4,7 @@
 // https://github.com/vpzomtrrfrt/amath/blob/master/src/grammar.lalrpop
 
 use crate::ast;
+use crate::ast::Node;
 use std::str::FromStr;
 
 
@@ -31,58 +32,55 @@ pub Expr: ast::Expr = {
 
 // Type expression entry point.
 pub Type: ast::TypeTag = {
-    "Bool" => ast::TypeTag::Bool,
-    "Int" => ast::TypeTag::Int,
-    "Float" => ast::TypeTag::Float,
-    "Str" => ast::TypeTag::Str,
-    "Point" => ast::TypeTag::Point,
-    "List" "<" <item:Type> ">" => ast::TypeTag::List(ast::Node::new(item)),
-    "Map" "<" <items:(<Str> ":" <Type>)*> ">" =>
-        ast::TypeTag::Map(ast::to_map(items)),
-    // TODO: Union
-    // TODO?: Unit / None?
-    "Record" "{" <items:(<Str> ":" <Type>)*> "}" =>
-        ast::TypeTag::Record(ast::to_seq(items)),
-    "(" <items:Comma<Type>> ")" => ast::TypeTag::Tuple(ast::to_seq(items)),
-    "Func" "(" <args:Comma<Type>> ")" "->" <ret:Type> =>
-        ast::TypeTag::Lambda(ast::to_seq(args), ast::Node::new(ret)),
-    "Proc" "(" <args:Comma<Type>> ")" =>
-        ast::TypeTag::Lambda(
-            ast::to_seq(args),
-            ast::Node::new(ast::TypeTag::Unit)),
-    "List" "<" <item:Type> ">"
+    "Bool"
+	=> ast::TypeTag::Bool,
+    "Int"
+	=> ast::TypeTag::Int,
+    "Float"
+	=> ast::TypeTag::Float,
+    "Str"
+	=> ast::TypeTag::Str,
+    "Point"
+	=> ast::TypeTag::Point,
+    "List" "of" <item:Type>
 	=> ast::TypeTag::List(ast::Node::new(item)),
-    "Map" "<" <items:(<Str> ":" <Type>)*> ">"
-	=> ast::TypeTag::Map(ast::to_map(items)),
-    "Record" "{" <items:Comma<Member>> "}"
-	=> ast::TypeTag::Record(ast::to_alist(items)),
     "(" <items:Comma<Type>> ")"
 	=> ast::TypeTag::Tuple(ast::to_seq(items)),
-    "Union" "{" <types:Comma<Type>> "}"
+    "Func" "(" <args:Comma<Type>> ")" "->" <ret:Type>
+	=> ast::TypeTag::Lambda(ast::to_seq(args), ast::Node::new(ret)),
+    "Proc" "(" <args:Comma<Type>> ")"
+	=> ast::TypeTag::Lambda(
+            ast::to_seq(args),
+            ast::Node::new(ast::TypeTag::Unit)),
+    "{" <items:Semicolon<Member>> "}"
+	=> ast::TypeTag::Record(ast::to_alist(items)),
+    "Union" "{" <types:Semicolon<Type>> "}"
 	=> ast::TypeTag::Union(ast::to_seq(types))
 }
 
 
 // Syntactic sugar for defining a function returning a value.
-FuncDef: ast::Statement =
-    "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block>
+FuncDef: ast::Statement
+    = "func" <name:Id> <args:Arglist> "->" <ret:Type> <body:Block>
     => ast::def(name.as_str(), ast::lambda(args, ret, body));
+
+
 // Any field in a record type.
 pub Member: (String, ast::Member) = {
     "field" <name:Id> ":" <t:Type>
 	=> (name, ast::Member::Field(ast::Node::new(t))),
-    "method" <name:Id> <def:LambdaParts>
-	=> (name, ast::Member::Method(def.0, def.1, def.2)),
+    "method" <name:Id> <args:Arglist> "->" <ret:Type> "=" <body:Expr>
+	=> (name, ast::Member::Method(args, Node::new(ret), Node::new(body))),
     "const" <name:Id> ":" <t:Type> "=" <value:Expr>
 	=> (name, ast::Member::StaticValue(ast::Node::new(value))),
-    "static" <name:Id> <def:LambdaParts>
-	=> (name, ast::Member::StaticMethod(def.0, def.1, def.2))
+    "static" <name:Id> <args:Arglist> "->" <ret:Type> "=" <body:Expr>
+	=> (name, ast::Member::StaticMethod(args, Node::new(ret), Node::new(body)))
 }
 
 
 // Syntatic sugar for defining a function which returns no value.
-ProcDef: ast::Statement =
-    "proc" <name:Id> <args:Arglist> <body:Block>
+ProcDef: ast::Statement
+    = "proc" <name:Id> <args:Arglist> <body:Block>
     => ast::def(name.as_str(), ast::lambda(args, ast::TypeTag::Unit, body));
 
 
@@ -162,13 +160,7 @@ Arglist: ast::AList<ast::TypeTag> =
 
 
 // An anonymous function expression.
-Lambda: ast::Expr = <parts:LambdaParts> =>
-	ast::lambda(parts.0, parts.1, parts.2);
-
-
-// Code common to method and function definitions.
-LambdaParts:
-(ast::AList<ast::TypeTag>, ast::Node<ast::TypeTag>, ast::Node<ast::Expr>)
+Lambda: ast::Expr
     = <args:Arglist> <ret:("->" <Type>)?> "=" <body:Expr>
     => (
 	args,
@@ -301,6 +293,19 @@ MapItems = Comma<MapItem>;
 // Comma-separated lists of things.
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+}
+
+
+// Semicolon-separated lists of things.
+Semicolon<T>: Vec<T> = {
+    <v:(<T> ";")*> <e:T?> => match e {
         None => v,
         Some(e) => {
             let mut v = v;
