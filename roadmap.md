@@ -8,8 +8,6 @@ Most of the recent work is on the `vm_render` branch, but it's a bit of a mess. 
 
 The majority of my effort will be directed towards uDLang, at least until it is featureful enough to host uDashboard.
 
-For more details, see `roadmap.md`.
-
 ### 0.1-mvp
 
 A cleaned-up version of the existing code. I have learned more about Rust since I started this, and some of the language constraints have been relaxed on stable rust. So, I think I know enough now to clean up the somewhat convoluted code in the rendering layer.`XXX` / `FIXME` / `TODO` issues now.
