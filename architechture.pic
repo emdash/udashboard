@@ -1,0 +1,54 @@
+# Script to generate architechture diagram
+# Render with `aspic -svg architechture.pic > architechture.svg`
+
+# Declare our fonts
+bindfont 1 "Times" 8;
+bindfont 2 "Times-Italic" 5;
+bindfont 3 "Times" 5;
+
+# Some useful values to tweak layout
+set offset "(140, 0)";
+set componentWidth "100";
+set inputWidth "50";
+
+# A macro for drawnig the udlang components
+# &1 component name
+# &2 component description
+# &3 output data description
+macro component {
+  setfont 1;
+  &1:
+  box width $componentWidth &2;
+  setfont 2;
+  arrow &3;
+};
+
+# A macro for annotating the additional inputs of a udlang components
+# &1 the component to annotate
+# &2 the input description
+# &3 the input data description
+macro input {
+  setfont 3;
+  &1Input:
+  box at right of &1 plus $offset width $inputWidth &2;
+  left;
+  setfont 2;
+  arrow to right of &1 &3;
+  right;
+};
+
+# Macros above assume vertical layout
+down;
+
+# These are the uDash components
+component Hardware "Hardware (CAN, USB, etc)" "Raw Data";
+component Decoder "Decoder" "JSON";
+component Renderer "Renderer" "uDashboard Graphics Protocol";
+component Rasterizer  "Rasterizer" "Pixel Buffer";
+setfont 1; Screen: box "Screen";
+
+# These are the additonal inputs for each component
+input Decoder "Input Config" "Hardware-Specific (e.g. CAN PID Mapping)";
+input Renderer "Layout" "uDLang script";
+input Rasterizer "Display Config" "resolution, orientation, scale, output, etc";
+
